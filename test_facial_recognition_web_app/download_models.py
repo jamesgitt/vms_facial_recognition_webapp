@@ -14,8 +14,8 @@ import hashlib
 # - YuNet model URL and filename
 # - Sface model URL and filename
 
-YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/refs/heads/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx?download="
-SFACE_URL = "https://github.com/opencv/opencv_zoo/raw/refs/heads/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx?download="
+YUNET_URL = "https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+SFACE_URL = "https://github.com/opencv/opencv_zoo/blob/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
 
 # - Define models directory path
 # - Get or create models directory
@@ -131,10 +131,6 @@ def main():
         print("Sface model downloaded successfully")
     else:
         print("Failed to download Sface model")
-    # Print summary of results
-    print("Models downloaded successfully")
-    # Return success status
-    pass
 
 if __name__ == "__main__":
     # Call main() and exit with appropriate code
