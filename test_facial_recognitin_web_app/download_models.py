@@ -78,7 +78,7 @@ def verify_file(filepath, expected_hash=None):
 
 def download_model(model_key, models_dir):
     """
-    Download models from multiple URLs
+    Download models from single URL
     
     Args:
         model_key: model name
