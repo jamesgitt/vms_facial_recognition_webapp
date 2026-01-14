@@ -1,0 +1,42 @@
+numpy>=1.26.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+opencv-python>=4.8.0
+kagglehub>=0.2.0
+tensorflow>=2.13.0
+tf-keras>=2.20.0
+deepface>=0.0.79
+
+# --- API & Web ---
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+websockets>=12.0
+
+# --- Serialization & Data Models ---
+pydantic>=2.0.0
+
+# --- Image Processing ---
+opencv-python>=4.8.0  # (duplicate removed)
+Pillow>=10.0.0
+
+# --- Database (used/optional by API) ---
+psycopg2-binary>=2.9.9
+
+# --- REST API requirements (for face_recog_api.py) ---
+# Explicitly required by face_recog_api.py
+fastapi
+pydantic
+uvicorn[standard]
+python-multipart
+Pillow
+opencv-python
+numpy
+
+# --- Misc/Utility (standard library: json, os, io, base64, datetime, typing, etc.) ---
+
+# DeepFace and TensorFlow - Note: TensorFlow requires Python 3.11 or 3.12
+# For Python 3.14, TensorFlow is not available. Use Python 3.11 or 3.12 instead.
+# deepface>=0.0.79
+# tensorflow>=2.13.0
