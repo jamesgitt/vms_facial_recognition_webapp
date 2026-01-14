@@ -14,8 +14,8 @@ import hashlib
 # - YuNet model URL and filename
 # - Sface model URL and filename
 
-YUNET_URL = "https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
-SFACE_URL = "https://github.com/opencv/opencv_zoo/blob/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
+YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/refs/heads/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+SFACE_URL = "https://github.com/opencv/opencv_zoo/raw/refs/heads/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
 
 # - Define models directory path
 # - Get or create models directory
@@ -46,11 +46,21 @@ def download_file(url, filepath, model_name):
     
     # Show download progress
     print(f"Downloading {model_name} from {url}...")
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers)) as response:
-        with open(filepath, 'wb') as out_file:
-            out_file.write(response.read())
-    print(f"Downloaded {model_name} to {filepath}")
-    return True
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers)) as response:
+            file_size = int(response.headers.get('Content-Length', 0))
+            if file_size > 0:
+                print(f"File size: {file_size / (1024*1024):.2f} MB")
+            with open(filepath, 'wb') as out_file:
+                out_file.write(response.read())
+        downloaded_size = os.path.getsize(filepath)
+        print(f"Downloaded {model_name} to {filepath} ({downloaded_size / (1024*1024):.2f} MB)")
+        return True
+    except Exception as e:
+        print(f"Error downloading {model_name}: {e}")
+        if os.path.exists(filepath):
+            os.remove(filepath)  # Remove partial download
+        return False
 
 def verify_file(filepath, expected_hash=None):
     """
@@ -100,11 +110,17 @@ def download_model(model_key, models_dir):
             'hash': None
         }
     }
-    # Check if model already exists, skip if valid
+    # Check if model already exists and is valid, skip if valid
     filepath = os.path.join(models_dir, model_info[model_key]['filename'])
     if os.path.exists(filepath):
-        print(f"Model {model_key} already exists in {models_dir}")
-        return True
+        # Check if file is valid (not empty, reasonable size for ONNX model)
+        file_size = os.path.getsize(filepath)
+        if file_size > 1000000:  # ONNX models should be at least 1MB
+            print(f"Model {model_key} already exists and is valid ({file_size / (1024*1024):.2f} MB)")
+            return True
+        else:
+            print(f"Model {model_key} exists but appears invalid (size: {file_size} bytes). Re-downloading...")
+            os.remove(filepath)  # Remove invalid file
     # Download from URL
     if download_file(model_info[model_key]['url'], filepath, model_key):
         # Verify downloaded file
