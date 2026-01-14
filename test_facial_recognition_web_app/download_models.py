@@ -92,12 +92,12 @@ def download_model(model_key, models_dir):
         'yunet': {
             'url': YUNET_URL,
             'filename': 'face_detection_yunet_2023mar.onnx',
-            'hash': 'd41d8cd98f00b204e9800998ecf8427e'
+            'hash': None
         },
         'sface': {
             'url': SFACE_URL,
             'filename': 'face_recognition_sface_2021dec.onnx',
-            'hash': 'd41d8cd98f00b204e9800998ecf8427e'
+            'hash': None
         }
     }
     # Check if model already exists, skip if valid
