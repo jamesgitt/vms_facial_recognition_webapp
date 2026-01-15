@@ -1,0 +1,49 @@
+# Facial Recognition Web App - Environment Variables Template
+# Copy this content to a .env file in this directory
+# DO NOT commit .env to version control
+
+# ============================================
+# DATABASE CONFIGURATION
+# ============================================
+
+# PostgreSQL Database URL for Prisma
+# Format: postgresql://user:password@host:port/database?schema=public
+DATABASE_URL=postgresql://postgres:your_password@localhost:5432/facial_recog_db?schema=public
+
+# ============================================
+# API CONFIGURATION
+# ============================================
+
+# Face Recognition API URL
+# Development: http://localhost:8000
+# Production: https://your-api-domain.com
+NEXT_PUBLIC_API_URL=http://localhost:8000
+
+# ============================================
+# AUTHENTICATION (Optional - for NextAuth)
+# ============================================
+
+# NextAuth Secret (generate with: openssl rand -base64 32)
+AUTH_SECRET=your_auth_secret_here
+
+# Discord OAuth (Optional - only if using Discord authentication)
+AUTH_DISCORD_ID=your_discord_client_id
+AUTH_DISCORD_SECRET=your_discord_client_secret
+
+# ============================================
+# ENVIRONMENT
+# ============================================
+
+# Node Environment
+NODE_ENV=development
+
+# Skip environment validation (for Docker builds)
+# SKIP_ENV_VALIDATION=true
+
+# ============================================
+# SECURITY NOTES
+# ============================================
+# - Never commit .env file to version control
+# - Use strong passwords for database
+# - Generate AUTH_SECRET using: openssl rand -base64 32
+# - Use environment-specific .env files (.env.local, .env.production)
