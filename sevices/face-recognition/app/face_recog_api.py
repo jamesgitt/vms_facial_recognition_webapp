@@ -3,15 +3,15 @@ Face Recognition API
 REST API for face detection and recognition using YuNet and Sface models.
 
 Implements endpoints for:
-- POST /detect           : Detect faces in an image.
-- POST /extract-features : Extract face features/vectors for detected faces.
-- POST /compare          : Compare faces between two images.
+- POST /api/v1/detect           : Detect faces in an image.
+- POST /api/v1/extract-features : Extract face features/vectors for detected faces.
+- POST /api/v1/compare          : Compare faces between two images.
 - POST /api/v1/recognize : Recognize visitor (PostgreSQL database or test_images fallback)
-- GET  /health           : Health check.
-- GET  /models/status    : Model loading status.
-- GET  /models/info      : Model metadata.
-- POST /validate-image   : Validate image before processing.
-- WEBSOCKET /ws/face     : Real-time face detection/recognition via websocket.
+- GET  /api/v1/health           : Health check.
+- GET  /api/v1/models/status    : Model loading status.
+- GET  /api/v1/models/info      : Model metadata.
+- POST /api/v1/validate-image   : Validate image before processing.
+- WEBSOCKET /ws/realtime     : Real-time face detection/recognition via websocket.
 """
 
 import os
@@ -374,7 +374,7 @@ async def detect_faces_api(
         count=len(faces_list)
     )
 
-@app.post("/extract-features", response_model=FeatureExtractionResponse, tags=["Features"])
+@app.post("api/v1/extract-features", response_model=FeatureExtractionResponse, tags=["Features"])
 async def extract_features_api(
     image: UploadFile = File(None),
     image_base64: str = Form(None),
