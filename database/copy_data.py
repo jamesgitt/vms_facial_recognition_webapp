@@ -1,16 +1,14 @@
 """
-Script to copy visitor data from source database to local PostgreSQL database.
-Supports copying from PostgreSQL, CSV files, or JSON files.
+Script to copy visitor data from a JSON file to the local PostgreSQL database.
 """
 
 import os
 import sys
 import psycopg2
-import csv
 import json
-import base64
 from pathlib import Path
-from typing import List, Dict, Optional
+from datetime import datetime
+from typing import Optional
 
 # Load environment variables from .env file if it exists
 try:
@@ -60,200 +58,84 @@ def connect_to_database(config):
         print(f"Error connecting to database: {e}")
         return None
 
-def copy_from_postgresql(source_config: dict, limit: Optional[int] = None):
-    """
-    Copy visitors from source PostgreSQL database to local database.
-    
-    Args:
-        source_config: Database connection config for source
-        limit: Maximum number of visitors to copy (None = all)
-    """
-    print("Connecting to source database...")
-    source_conn = connect_to_database(source_config)
-    if not source_conn:
-        return False
-    
-    print("Connecting to local database...")
-    local_conn = connect_to_database(LOCAL_DB_CONFIG)
-    if not local_conn:
-        source_conn.close()
-        return False
-    
-    try:
-        source_cursor = source_conn.cursor()
-        local_cursor = local_conn.cursor()
-        
-        # Query source database
-        query = "SELECT visitor_id, base64Image, name, email, phone, active, status FROM visitors WHERE base64Image IS NOT NULL"
-        if limit:
-            query += f" LIMIT {limit}"
-        
-        print(f"Querying source database...")
-        source_cursor.execute(query)
-        visitors = source_cursor.fetchall()
-        
-        print(f"Found {len(visitors)} visitors to copy")
-        
-        # Insert into local database
-        insert_query = """
-            INSERT INTO visitors (visitor_id, base64Image, name, email, phone, active, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (visitor_id) DO UPDATE SET
-                base64Image = EXCLUDED.base64Image,
-                name = EXCLUDED.name,
-                email = EXCLUDED.email,
-                phone = EXCLUDED.phone,
-                active = EXCLUDED.active,
-                status = EXCLUDED.status,
-                updated_at = CURRENT_TIMESTAMP
-        """
-        
-        copied = 0
-        for visitor in visitors:
-            try:
-                # Handle different schema types
-                if schema_type == "new":
-                    # Already in correct format: (id, base64Image, firstName, lastName, fullName, email, phone, imageUrl)
-                    local_cursor.execute(insert_query, visitor)
-                elif schema_type == "old":
-                    # Old format: (visitor_id, base64Image, name, email, phone)
-                    # Convert to new format
-                    visitor_id = visitor[0]
-                    base64_image = visitor[1]
-                    name = visitor[2] if len(visitor) > 2 else None
-                    email = visitor[3] if len(visitor) > 3 else None
-                    phone = visitor[4] if len(visitor) > 4 else None
-                    
-                    # Split name into first/last if possible
-                    if name:
-                        name_parts = name.split(' ', 1)
-                        first_name = name_parts[0] if len(name_parts) > 0 else None
-                        last_name = name_parts[1] if len(name_parts) > 1 else None
-                        full_name = name
-                    else:
-                        first_name = None
-                        last_name = None
-                        full_name = None
-                    
-                    local_cursor.execute(insert_query, (
-                        visitor_id, base64_image, first_name, last_name, full_name, email, phone, None
-                    ))
-                else:
-                    # Generic - try as-is
-                    local_cursor.execute(insert_query, visitor)
-                
-                copied += 1
-                if copied % 10 == 0:
-                    print(f"Copied {copied}/{len(visitors)} visitors...")
-            except Exception as e:
-                print(f"Error copying visitor {visitor[0] if visitor else 'unknown'}: {e}")
-                continue
-        
-        local_conn.commit()
-        print(f"✅ Successfully copied {copied} visitors to local database")
-        return True
-        
-    except Exception as e:
-        print(f"Error during copy: {e}")
-        local_conn.rollback()
-        return False
-    finally:
-        source_cursor.close()
-        local_cursor.close()
-        source_conn.close()
-        local_conn.close()
-
-def copy_from_csv(csv_file: str):
-    """
-    Copy visitors from CSV file to local database.
-    
-    CSV format should have columns: visitor_id, base64Image, name, email, phone, active, status
-    """
-    print(f"Reading CSV file: {csv_file}")
-    local_conn = connect_to_database(LOCAL_DB_CONFIG)
-    if not local_conn:
-        return False
-    
-    try:
-        cursor = local_conn.cursor()
-        
-        with open(csv_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            
-            insert_query = """
-                INSERT INTO visitors (id, "base64Image", "firstName", "lastName", "fullName", email, phone, "imageUrl")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO UPDATE SET
-                    "base64Image" = EXCLUDED."base64Image",
-                    "firstName" = EXCLUDED."firstName",
-                    "lastName" = EXCLUDED."lastName",
-                    "fullName" = EXCLUDED."fullName",
-                    email = EXCLUDED.email,
-                    phone = EXCLUDED.phone,
-                    "imageUrl" = EXCLUDED."imageUrl",
-                    "updatedAt" = CURRENT_TIMESTAMP
-            """
-            
-            copied = 0
-            for row in reader:
-                try:
-                    # Handle both old and new CSV formats
-                    visitor_id = row.get('id') or row.get('visitor_id')
-                    base64_image = row.get('base64Image') or row.get('base64Image')
-                    first_name = row.get('firstName') or (row.get('name', '').split(' ', 1)[0] if row.get('name') else None)
-                    last_name = row.get('lastName') or (row.get('name', '').split(' ', 1)[1] if row.get('name') and ' ' in row.get('name', '') else None)
-                    full_name = row.get('fullName') or row.get('name')
-                    email = row.get('email')
-                    phone = row.get('phone')
-                    image_url = row.get('imageUrl')
-                    
-                    cursor.execute(insert_query, (
-                        visitor_id,
-                        base64_image,
-                        first_name,
-                        last_name,
-                        full_name,
-                        email,
-                        phone,
-                        image_url
-                    ))
-                    copied += 1
-                except Exception as e:
-                    print(f"Error copying row: {e}")
-                    continue
-            
-            local_conn.commit()
-            print(f"✅ Successfully copied {copied} visitors from CSV")
-            return True
-            
-    except Exception as e:
-        print(f"Error reading CSV: {e}")
-        local_conn.rollback()
-        return False
-    finally:
-        cursor.close()
-        local_conn.close()
-
-def copy_from_json(json_file: str):
+def copy_from_json(json_file: str, dry_run: bool = False):
     """
     Copy visitors from JSON file to local database.
+
+    JSON format: [{"id": "...", "base64Image": "...", ...}, ...]
     
-    JSON format: [{"visitor_id": "...", "base64Image": "...", ...}, ...]
+    Args:
+        json_file: Path to JSON file containing visitor data
+        dry_run: If True, only validate data without inserting
     """
-    print(f"Reading JSON file: {json_file}")
+    if not os.path.exists(json_file):
+        print(f"❌ Error: JSON file not found: {json_file}")
+        return False
+    
+    print(f"📄 Reading JSON file: {json_file}")
     local_conn = connect_to_database(LOCAL_DB_CONFIG)
     if not local_conn:
         return False
-    
+
     try:
         cursor = local_conn.cursor()
-        
+
         with open(json_file, 'r', encoding='utf-8') as f:
-            visitors = json.load(f)
+            data = json.load(f)
+
+        # Handle different JSON structures
+        visitors = None
+        if isinstance(data, list):
+            # Direct array: [{...}, {...}]
+            visitors = data
+        elif isinstance(data, dict):
+            # Object with array inside: {"visitors": [...], "data": [...], etc.}
+            # Try common keys
+            for key in ['visitors', 'data', 'visitor_data', 'results', 'items', 'records']:
+                if key in data and isinstance(data[key], list):
+                    visitors = data[key]
+                    print(f"📋 Found array under key: '{key}'")
+                    break
+            
+            # If still not found, check if any value is a list
+            if visitors is None:
+                for key, value in data.items():
+                    if isinstance(value, list):
+                        visitors = value
+                        print(f"📋 Found array under key: '{key}'")
+                        break
+        
+        if visitors is None or not isinstance(visitors, list):
+            print(f"❌ Error: JSON file must contain an array of visitors")
+            print(f"")
+            print(f"Expected format:")
+            print(f"  Option 1: Direct array")
+            print(f"    [{{\"id\": \"...\", \"base64Image\": \"...\"}}, ...]")
+            print(f"")
+            print(f"  Option 2: Object with array")
+            print(f"    {{\"visitors\": [{{\"id\": \"...\", \"base64Image\": \"...\"}}, ...]}}")
+            print(f"")
+            if isinstance(data, dict):
+                print(f"Found object with keys: {list(data.keys())[:10]}")
+                # Show structure hint
+                for key, value in list(data.items())[:3]:
+                    value_type = type(value).__name__
+                    if isinstance(value, list):
+                        print(f"  - '{key}': array with {len(value)} items")
+                    else:
+                        print(f"  - '{key}': {value_type}")
+            else:
+                print(f"Found: {type(data).__name__}")
+            return False
+
+        print(f"📊 Found {len(visitors)} visitors in JSON file")
+        
+        if dry_run:
+            print("🔍 DRY RUN MODE - Validating data only (no inserts)")
         
         insert_query = """
-            INSERT INTO visitors (id, "base64Image", "firstName", "lastName", "fullName", email, phone, "imageUrl")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO visitors (id, "base64Image", "firstName", "lastName", "fullName", email, phone, "imageUrl", "createdAt")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
                 "base64Image" = EXCLUDED."base64Image",
                 "firstName" = EXCLUDED."firstName",
@@ -264,114 +146,213 @@ def copy_from_json(json_file: str):
                 "imageUrl" = EXCLUDED."imageUrl",
                 "updatedAt" = CURRENT_TIMESTAMP
         """
-        
+
         copied = 0
-        for visitor in visitors:
+        skipped = 0
+        errors = 0
+        
+        for idx, visitor in enumerate(visitors, 1):
             try:
                 # Handle both old and new JSON formats
                 visitor_id = visitor.get('id') or visitor.get('visitor_id')
-                base64_image = visitor.get('base64Image') or visitor.get('base64Image')
-                first_name = visitor.get('firstName')
-                last_name = visitor.get('lastName')
-                full_name = visitor.get('fullName') or visitor.get('name')
+                if not visitor_id:
+                    print(f"⚠️  Visitor #{idx}: Missing ID, skipping")
+                    skipped += 1
+                    continue
                 
+                base64_image = visitor.get('base64Image') or visitor.get('base64_image')
+                if not base64_image:
+                    print(f"⚠️  Visitor #{idx} ({visitor_id}): Missing base64Image, skipping")
+                    skipped += 1
+                    continue
+                
+                first_name = visitor.get('firstName') or visitor.get('first_name')
+                last_name = visitor.get('lastName') or visitor.get('last_name')
+                full_name = visitor.get('fullName') or visitor.get('full_name') or visitor.get('name')
+
                 # If name exists but firstName/lastName don't, split it
                 if not first_name and full_name:
                     name_parts = full_name.split(' ', 1)
                     first_name = name_parts[0] if len(name_parts) > 0 else None
                     last_name = name_parts[1] if len(name_parts) > 1 else None
                 
-                cursor.execute(insert_query, (
-                    visitor_id,
-                    base64_image,
-                    first_name,
-                    last_name,
-                    full_name,
-                    visitor.get('email'),
-                    visitor.get('phone'),
-                    visitor.get('imageUrl')
-                ))
+                # Handle createdAt if present in JSON
+                created_at = visitor.get('createdAt') or visitor.get('created_at')
+                if isinstance(created_at, str):
+                    # Try to parse ISO format or other common formats
+                    try:
+                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    except:
+                        created_at = None
+
+                if not dry_run:
+                    cursor.execute(insert_query, (
+                        visitor_id,
+                        base64_image,
+                        first_name,
+                        last_name,
+                        full_name,
+                        visitor.get('email'),
+                        visitor.get('phone'),
+                        visitor.get('imageUrl') or visitor.get('image_url'),
+                        created_at
+                    ))
+                
                 copied += 1
+                if idx % 100 == 0:
+                    print(f"  Progress: {idx}/{len(visitors)} visitors processed...")
+                    
             except Exception as e:
-                print(f"Error copying visitor {visitor.get('id') or visitor.get('visitor_id', 'unknown')}: {e}")
+                visitor_id = visitor.get('id') or visitor.get('visitor_id', f'#{idx}')
+                print(f"❌ Error copying visitor {visitor_id}: {e}")
+                errors += 1
                 continue
+
+        if not dry_run:
+            local_conn.commit()
+            print(f"\n✅ Successfully copied {copied} visitors from JSON")
+            if skipped > 0:
+                print(f"⚠️  Skipped {skipped} visitors (missing required fields)")
+            if errors > 0:
+                print(f"❌ Failed to copy {errors} visitors (errors occurred)")
+        else:
+            print(f"\n✅ Validation complete: {copied} valid visitors found")
+            if skipped > 0:
+                print(f"⚠️  {skipped} visitors would be skipped (missing required fields)")
+            if errors > 0:
+                print(f"❌ {errors} visitors have errors")
         
-        local_conn.commit()
-        print(f"✅ Successfully copied {copied} visitors from JSON")
         return True
-        
+
+    except json.JSONDecodeError as e:
+        print(f"❌ Error: Invalid JSON format: {e}")
+        return False
     except Exception as e:
-        print(f"Error reading JSON: {e}")
-        local_conn.rollback()
+        print(f"❌ Error reading JSON: {e}")
+        if not dry_run:
+            local_conn.rollback()
         return False
     finally:
         cursor.close()
         local_conn.close()
 
+def find_json_on_desktop(filename: Optional[str] = None) -> Optional[Path]:
+    """
+    Find JSON file on user's desktop.
+    
+    Args:
+        filename: Specific filename to look for (e.g., 'visitors.json')
+                  If None, looks for common visitor data filenames
+    
+    Returns:
+        Path to JSON file if found, None otherwise
+    """
+    # Get desktop path
+    desktop = Path.home() / "Desktop"
+    
+    if not desktop.exists():
+        # Try alternative desktop locations
+        alt_desktop = Path(os.path.expanduser("~/Desktop"))
+        if alt_desktop.exists():
+            desktop = alt_desktop
+        else:
+            return None
+    
+    # If specific filename provided, look for it
+    if filename:
+        json_path = desktop / filename
+        if json_path.exists():
+            return json_path
+        # Try with .json extension if not provided
+        if not filename.endswith('.json'):
+            json_path = desktop / f"{filename}.json"
+            if json_path.exists():
+                return json_path
+        return None
+    
+    # Look for common visitor data filenames
+    common_names = [
+        "visitors.json",
+        "visitor_data.json",
+        "visitors_data.json",
+        "data.json",
+        "visitors.json",
+    ]
+    
+    for name in common_names:
+        json_path = desktop / name
+        if json_path.exists():
+            return json_path
+    
+    return None
+
 def main():
-    """Main function to handle command-line arguments."""
+    """Main function to handle command-line arguments for JSON copy."""
+    dry_run = '--dry-run' in sys.argv or '-d' in sys.argv
+    
+    # If no arguments provided, try to find JSON on desktop
     if len(sys.argv) < 2:
-        print("Usage:")
-        print("  python copy_data.py postgresql --source-host HOST --source-user USER --source-password PASSWORD --source-db DATABASE [--limit N]")
-        print("  python copy_data.py csv <csv_file>")
-        print("  python copy_data.py json <json_file>")
-        sys.exit(1)
-    
-    method = sys.argv[1].lower()
-    
-    if method == 'postgresql':
-        # Parse command-line arguments
-        source_config = {}
-        limit = None
+        print("🔍 No file specified. Searching Desktop for visitor data...")
+        json_file = find_json_on_desktop()
         
-        i = 2
-        while i < len(sys.argv):
-            if sys.argv[i] == '--source-host':
-                source_config['host'] = sys.argv[i + 1]
-                i += 2
-            elif sys.argv[i] == '--source-user':
-                source_config['user'] = sys.argv[i + 1]
-                i += 2
-            elif sys.argv[i] == '--source-password':
-                source_config['password'] = sys.argv[i + 1]
-                i += 2
-            elif sys.argv[i] == '--source-db':
-                source_config['database'] = sys.argv[i + 1]
-                i += 2
-            elif sys.argv[i] == '--source-port':
-                source_config['port'] = int(sys.argv[i + 1])
-                i += 2
-            elif sys.argv[i] == '--limit':
-                limit = int(sys.argv[i + 1])
-                i += 2
-            else:
-                i += 1
-        
-        # Set defaults
-        source_config.setdefault('port', 5432)
-        
-        if not all(k in source_config for k in ['host', 'user', 'password', 'database']):
-            print("Error: Missing required parameters for PostgreSQL source")
-            print("Required: --source-host, --source-user, --source-password, --source-db")
+        if json_file:
+            print(f"✅ Found: {json_file}")
+            print("")
+            # json_file is already a Path object
+            json_path = json_file
+        else:
+            print("❌ No JSON file found on Desktop.")
+            print("")
+            print("Usage:")
+            print("  python copy_data.py <json_file> [--dry-run]")
+            print("  python copy_data.py  # Auto-find JSON on Desktop")
+            print("")
+            print("Examples:")
+            print("  python copy_data.py")
+            print("  python copy_data.py visitors.json")
+            print("  python copy_data.py C:\\Users\\YourName\\Desktop\\visitors.json")
+            print("  python copy_data.py visitors.json --dry-run  # Validate without inserting")
+            print("")
+            print("💡 Tip: Place your JSON file on Desktop with one of these names:")
+            print("   - visitors.json")
+            print("   - visitor_data.json")
+            print("   - visitors_data.json")
+            print("   - data.json")
             sys.exit(1)
-        
-        copy_from_postgresql(source_config, limit)
-        
-    elif method == 'csv':
-        if len(sys.argv) < 3:
-            print("Error: CSV file path required")
-            sys.exit(1)
-        copy_from_csv(sys.argv[2])
-        
-    elif method == 'json':
-        if len(sys.argv) < 3:
-            print("Error: JSON file path required")
-            sys.exit(1)
-        copy_from_json(sys.argv[2])
-        
     else:
-        print(f"Error: Unknown method '{method}'")
+        json_file = sys.argv[1]
+        
+        # Convert to Path for easier handling
+        json_path = Path(json_file)
+        
+        # Expand user path if needed (check string representation)
+        json_file_str = str(json_file)
+        if json_file_str.startswith("~"):
+            json_path = Path(os.path.expanduser(json_file_str))
+        
+        # If it's a relative path or just filename, check desktop first
+        if not json_path.is_absolute() and not json_path.exists():
+            desktop_file = find_json_on_desktop(json_path.name)
+            if desktop_file:
+                print(f"📁 Found file on Desktop: {desktop_file}")
+                json_path = desktop_file
+    
+    # Check if file exists
+    if not json_path.exists():
+        print(f"❌ File not found: {json_path}")
+        print("")
+        # Suggest desktop location
+        desktop_file = find_json_on_desktop(json_path.name)
+        if desktop_file:
+            print(f"💡 Did you mean: {desktop_file}?")
         sys.exit(1)
+    
+    print(f"📄 Using file: {json_path}")
+    print(f"📂 Full path: {json_path.absolute()}")
+    print("")
+    
+    success = copy_from_json(str(json_path), dry_run=dry_run)
+    sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
     main()
