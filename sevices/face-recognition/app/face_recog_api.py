@@ -6,7 +6,7 @@ Implements endpoints for:
 - POST /detect           : Detect faces in an image.
 - POST /extract-features : Extract face features/vectors for detected faces.
 - POST /compare          : Compare faces between two images.
-- POST /api/va/recognize : Recognize visitor (test database from test_images)
+- POST /api/v1/recognize : Recognize visitor (PostgreSQL database or test_images fallback)
 - GET  /health           : Health check.
 - GET  /models/status    : Model loading status.
 - GET  /models/info      : Model metadata.
@@ -53,9 +53,9 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",") if os.environ.get(
 # Database configuration
 USE_DATABASE = os.environ.get("USE_DATABASE", "false").lower() == "true"
 DB_TABLE_NAME = os.environ.get("DB_TABLE_NAME", "visitors")
-DB_VISITOR_ID_COLUMN = os.environ.get("DB_VISITOR_ID_COLUMN", "visitor_id")
+DB_VISITOR_ID_COLUMN = os.environ.get("DB_VISITOR_ID_COLUMN", "id")  # Changed from visitor_id to id
 DB_IMAGE_COLUMN = os.environ.get("DB_IMAGE_COLUMN", "base64Image")
-DB_ACTIVE_ONLY = os.environ.get("DB_ACTIVE_ONLY", "false").lower() == "true"
+DB_ACTIVE_ONLY = os.environ.get("DB_ACTIVE_ONLY", "false").lower() == "true"  # Not used in minimal schema
 DB_VISITOR_LIMIT = int(os.environ.get("DB_VISITOR_LIMIT", "0")) or None  # 0 or None = no limit
 
 # --- GLOBAL TEST VISITORS SETUP ---

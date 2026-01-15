@@ -84,3 +84,10 @@ dist/
 *.egg-info/
 dist/
 build/
+
+# Database backups and dumps
+*.sql
+*.dump
+*.backup
+database/*.sql
+!database/init.sql

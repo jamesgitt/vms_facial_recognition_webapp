@@ -77,7 +77,7 @@ def init_connection_pool(min_conn=1, max_conn=10):
 
 def get_visitor_images_from_db(
     table_name: str = "visitors",
-    visitor_id_column: str = "visitor_id",
+    visitor_id_column: str = "id",
     image_column: str = "base64Image",
     limit: Optional[int] = None,
     active_only: bool = False
@@ -105,19 +105,22 @@ def get_visitor_images_from_db(
         
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Build query
+        # Build query - use quoted column names for case-sensitive columns
+        # PostgreSQL requires quotes for mixed-case column names
+        case_sensitive_cols = ['id', 'base64Image', 'imageUrl', 'firstName', 'lastName', 'fullName', 'createdAt', 'updatedAt']
+        visitor_id_col = f'"{visitor_id_column}"' if visitor_id_column in case_sensitive_cols else visitor_id_column
+        image_col = f'"{image_column}"' if image_column in case_sensitive_cols else image_column
+        
         query = f"""
-            SELECT {visitor_id_column}, {image_column}
+            SELECT {visitor_id_col}, {image_col}
             FROM {table_name}
-            WHERE {image_column} IS NOT NULL
+            WHERE {image_col} IS NOT NULL
         """
         
-        # Add active filter if requested
-        if active_only:
-            # Try common column names for status
-            query += " AND (active = true OR status = 'active' OR status = 'Active')"
+        # Note: active_only removed as it's not in the minimal schema
+        # Add back if you add active/status columns later
         
-        query += f" ORDER BY {visitor_id_column}"
+        query += f" ORDER BY {visitor_id_col}"
         
         if limit:
             query += f" LIMIT {limit}"
@@ -148,7 +151,7 @@ def get_visitor_images_from_db(
 def get_visitor_details(
     visitor_id: str,
     table_name: str = "visitors",
-    visitor_id_column: str = "visitor_id"
+    visitor_id_column: str = "id"
 ) -> Optional[Dict]:
     """
     Get full visitor details by visitor_id.
@@ -170,7 +173,9 @@ def get_visitor_details(
         
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        query = f"SELECT * FROM {table_name} WHERE {visitor_id_column} = %s"
+        # Use quoted column name if it's case-sensitive
+        visitor_id_col = f'"{visitor_id_column}"' if visitor_id_column in ['id', 'base64Image', 'imageUrl', 'firstName', 'lastName', 'fullName', 'createdAt', 'updatedAt'] else visitor_id_column
+        query = f'SELECT * FROM {table_name} WHERE {visitor_id_col} = %s'
         cursor.execute(query, (visitor_id,))
         result = cursor.fetchone()
         
