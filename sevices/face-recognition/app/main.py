@@ -16,6 +16,22 @@ import sys
 import argparse
 from pathlib import Path
 
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    # Try to load .env from parent directory (sevices/face-recognition/.env)
+    _SCRIPT_DIR = Path(__file__).parent
+    env_file = _SCRIPT_DIR.parent / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+        print(f"✓ Loaded environment variables from {env_file}")
+    else:
+        # Also try current directory
+        load_dotenv(_SCRIPT_DIR / ".env")
+except ImportError:
+    # python-dotenv not installed, skip .env loading
+    pass
+
 # Ensure the script directory is in Python path for imports
 _SCRIPT_DIR = Path(__file__).parent
 if str(_SCRIPT_DIR) not in sys.path:
@@ -87,15 +103,15 @@ Examples:
     parser.add_argument(
         "--host",
         type=str,
-        default="0.0.0.0",
-        help="Host to bind to (default: 0.0.0.0)"
+        default=os.environ.get("API_HOST", "0.0.0.0"),
+        help="Host to bind to (default: from API_HOST env var or 0.0.0.0)"
     )
     
     parser.add_argument(
         "--port",
         type=int,
-        default=8000,
-        help="Port to bind to (default: 8000)"
+        default=int(os.environ.get("API_PORT", "8000")),
+        help="Port to bind to (default: from API_PORT env var or 8000)"
     )
     
     parser.add_argument(

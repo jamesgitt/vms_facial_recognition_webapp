@@ -2,23 +2,53 @@
 Test script to verify database connection and schema.
 """
 
-import psycopg2
+import os
 import sys
+from pathlib import Path
+import psycopg2
 
-# Database configuration
-DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'visitors_db',
-    'user': 'postgres',
-    'password': 'postgres'
-}
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    # Try to load .env from sevices/face-recognition/.env
+    env_file = Path(__file__).parent.parent / "sevices" / "face-recognition" / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+    # Also try root .env
+    root_env = Path(__file__).parent.parent / ".env"
+    if root_env.exists():
+        load_dotenv(root_env)
+except ImportError:
+    pass
+
+# Database configuration from environment variables
+DATABASE_URL = os.environ.get("DATABASE_URL")
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_PORT = int(os.environ.get("DB_PORT", "5432"))
+DB_NAME = os.environ.get("DB_NAME", "visitors_db")
+DB_USER = os.environ.get("DB_USER", "postgres")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "postgres")
+
+# Build config from DATABASE_URL or individual parameters
+if DATABASE_URL:
+    DB_CONFIG = DATABASE_URL
+else:
+    DB_CONFIG = {
+        'host': DB_HOST,
+        'port': DB_PORT,
+        'database': DB_NAME,
+        'user': DB_USER,
+        'password': DB_PASSWORD
+    }
 
 def test_connection():
     """Test database connection."""
     print("Testing database connection...")
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        if isinstance(DB_CONFIG, str):
+            conn = psycopg2.connect(DB_CONFIG)
+        else:
+            conn = psycopg2.connect(**DB_CONFIG)
         print("✅ Connection successful!")
         
         cursor = conn.cursor()

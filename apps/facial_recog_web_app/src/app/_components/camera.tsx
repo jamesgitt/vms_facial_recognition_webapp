@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { env } from "~/env";
 
 interface Face {
   x: number;
@@ -37,9 +38,7 @@ export function FaceRecognitionCamera() {
   const [detectionThreshold, setDetectionThreshold] = useState(0.6);
   const [processInterval, setProcessInterval] = useState(3);
   const [apiUrl, setApiUrl] = useState(
-    typeof window !== "undefined" 
-      ? (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")
-      : "http://localhost:8000"
+    env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
   );
   const [comparisonThreshold, setComparisonThreshold] = useState(0.363);
   const [referenceFace, setReferenceFace] = useState<string | null>(null);

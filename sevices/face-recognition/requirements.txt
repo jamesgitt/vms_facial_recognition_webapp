@@ -24,6 +24,9 @@ Pillow>=10.0.0
 # --- Database (used/optional by API) ---
 psycopg2-binary>=2.9.9
 
+# --- Environment Variables ---
+python-dotenv>=1.0.0
+
 # --- REST API requirements (for face_recog_api.py) ---
 # Explicitly required by face_recog_api.py
 fastapi

@@ -6,10 +6,26 @@ Handles PostgreSQL database connections and visitor image queries.
 import os
 import base64
 from typing import List, Dict, Optional, Tuple
+from pathlib import Path
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2.pool import SimpleConnectionPool
 import logging
+
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    # Try to load .env from parent directory (sevices/face-recognition/.env)
+    _SCRIPT_DIR = Path(__file__).parent
+    env_file = _SCRIPT_DIR.parent / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+    else:
+        # Also try current directory
+        load_dotenv(_SCRIPT_DIR / ".env")
+except ImportError:
+    # python-dotenv not installed, skip .env loading
+    pass
 
 logger = logging.getLogger(__name__)
 

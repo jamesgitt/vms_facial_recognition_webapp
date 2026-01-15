@@ -10,6 +10,22 @@ Downloads YuNet and Sface ONNX models for face detection and recognition
 import urllib.request
 import os
 import hashlib
+from pathlib import Path
+
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    # Try to load .env from parent directory (sevices/face-recognition/.env)
+    _SCRIPT_DIR = Path(__file__).parent
+    env_file = _SCRIPT_DIR.parent / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+    else:
+        # Also try current directory
+        load_dotenv(_SCRIPT_DIR / ".env")
+except ImportError:
+    # python-dotenv not installed, skip .env loading
+    pass
 
 # - YuNet model URL and filename
 # - Sface model URL and filename

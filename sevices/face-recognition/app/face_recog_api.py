@@ -20,6 +20,7 @@ import json
 import base64
 import datetime
 from typing import List, Tuple, Optional, Any
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -29,6 +30,21 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from PIL import Image
+
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    # Try to load .env from parent directory (sevices/face-recognition/.env)
+    _SCRIPT_DIR = Path(__file__).parent
+    env_file = _SCRIPT_DIR.parent / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+    else:
+        # Also try current directory
+        load_dotenv(_SCRIPT_DIR / ".env")
+except ImportError:
+    # python-dotenv not installed, skip .env loading
+    pass
 
 import inference  # This should be your inference.py containing detection/recognition
 
