@@ -2,16 +2,25 @@
 
 This directory contains setup files for a local PostgreSQL database using Docker, designed for testing and development of the face recognition system.
 
+## 📋 Prerequisites
+
+**Docker Desktop must be installed** to use this setup. If you don't have Docker Desktop installed:
+
+- **Windows**: See [DOCKER_INSTALLATION.md](./DOCKER_INSTALLATION.md) for detailed installation instructions
+- **Quick Install**: Download from https://www.docker.com/products/docker-desktop/
+
+After installing Docker Desktop, make sure it's running (you'll see a whale icon in your system tray).
+
 ## 🚀 Quick Start
 
 ### 1. Start the Database
 
 ```bash
 # Start PostgreSQL (and optional pgAdmin)
-docker-compose -f docker-compose.db.yml up -d
+docker compose -f docker-compose.db.yml up -d
 
 # Check if it's running
-docker-compose -f docker-compose.db.yml ps
+docker compose -f docker-compose.db.yml ps
 ```
 
 ### 2. Verify Connection
@@ -161,17 +170,17 @@ python database/test_connection.py
 
 ### Start Database
 ```bash
-docker-compose -f docker-compose.db.yml up -d
+docker compose -f docker-compose.db.yml up -d
 ```
 
 ### Stop Database
 ```bash
-docker-compose -f docker-compose.db.yml down
+docker compose -f docker-compose.db.yml down
 ```
 
 ### View Logs
 ```bash
-docker-compose -f docker-compose.db.yml logs -f postgres
+docker compose -f docker-compose.db.yml logs -f postgres
 ```
 
 ### Access Database Shell
@@ -191,8 +200,8 @@ docker exec -i facial_recog_postgres psql -U postgres -d visitors_db < backup.sq
 
 ### Reset Database (⚠️ Deletes all data)
 ```bash
-docker-compose -f docker-compose.db.yml down -v
-docker-compose -f docker-compose.db.yml up -d
+docker compose -f docker-compose.db.yml down -v
+docker compose -f docker-compose.db.yml up -d
 ```
 
 ## 🔒 Security Notes
@@ -224,7 +233,7 @@ ports:
 
 2. Check logs:
    ```bash
-   docker-compose -f docker-compose.db.yml logs postgres
+   docker compose -f docker-compose.db.yml logs postgres
    ```
 
 3. Verify health check:

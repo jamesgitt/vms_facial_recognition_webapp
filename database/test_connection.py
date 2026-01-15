@@ -102,7 +102,7 @@ def test_connection():
     except psycopg2.OperationalError as e:
         print(f"❌ Connection failed: {e}")
         print("\nMake sure the database is running:")
-        print("  docker-compose -f docker-compose.db.yml up -d")
+        print("  docker compose -f docker-compose.db.yml up -d")
         return False
     except Exception as e:
         print(f"❌ Error: {e}")

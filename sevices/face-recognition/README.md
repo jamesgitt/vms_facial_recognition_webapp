@@ -14,10 +14,10 @@ A standalone Dockerized microservice for face detection and recognition using Yu
 
 ```bash
 # Build and start
-docker-compose up --build
+docker compose up --build
 
 # Or run in detached mode
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 The API will be available at: **http://localhost:8000**
@@ -75,22 +75,22 @@ curl -X POST http://localhost:8000/api/v1/detect \
 
 ```bash
 # Build image
-docker-compose build
+docker compose build
 
 # Start service
-docker-compose up
+docker compose up
 
 # Start in background
-docker-compose up -d
+docker compose up -d
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop service
-docker-compose down
+docker compose down
 
 # Rebuild after code changes
-docker-compose up --build
+docker compose up --build
 ```
 
 ## 📦 Project Structure
@@ -145,14 +145,14 @@ console.log(`Detected ${data.count} faces`);
 
 2. **Use environment-specific configs**:
    ```bash
-   docker-compose -f docker-compose.prod.yml up
+   docker compose -f docker-compose.prod.yml up
    ```
 
 3. **Add reverse proxy** (nginx/traefik) for SSL termination
 
 4. **Scale horizontally**:
    ```bash
-   docker-compose up --scale face-recognition-api=3
+   docker compose up --scale face-recognition-api=3
    ```
 
 ### Cloud Deployment Options
@@ -184,7 +184,7 @@ ports:
 ### Health check failing
 Check logs:
 ```bash
-docker-compose logs face-recognition-api
+docker compose logs face-recognition-api
 ```
 
 ## 📝 License

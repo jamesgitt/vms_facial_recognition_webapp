@@ -19,7 +19,7 @@ echo [INFO] Starting PostgreSQL database...
 echo.
 
 REM Start database
-docker-compose -f docker-compose.db.yml up -d
+docker compose -f docker-compose.db.yml up -d
 
 if errorlevel 1 (
     echo.
@@ -45,7 +45,7 @@ echo   pgAdmin: http://localhost:5050
 echo   Email:   admin@admin.com
 echo   Password: admin
 echo.
-echo To stop: docker-compose -f docker-compose.db.yml down
+echo To stop: docker compose -f docker-compose.db.yml down
 echo.
 
 pause

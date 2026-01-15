@@ -17,7 +17,7 @@ echo "[INFO] Starting PostgreSQL database..."
 echo
 
 # Start database
-docker-compose -f docker-compose.db.yml up -d
+docker compose -f docker-compose.db.yml up -d
 
 if [ $? -ne 0 ]; then
     echo
@@ -42,5 +42,5 @@ echo "  pgAdmin: http://localhost:5050"
 echo "  Email:   admin@admin.com"
 echo "  Password: admin"
 echo
-echo "To stop: docker-compose -f docker-compose.db.yml down"
+echo "To stop: docker compose -f docker-compose.db.yml down"
 echo
