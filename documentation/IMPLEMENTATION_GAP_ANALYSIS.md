@@ -84,7 +84,7 @@ Based on the [ML Backend Services Documentation](file:///c%3A/Users/jamconcepcio
 - **Status**: ✅ **FULLY IMPLEMENTED** (PostgreSQL support with fallback)
 - **Expected**: 
   - ✅ PostgreSQL connection (`database.py` module)
-  - ✅ Query visitor images: `SELECT visitor_id, base64Image FROM visitors WHERE base64Image IS NOT NULL`
+  - ✅ Query visitor images: `SELECT id, "base64Image" FROM visitors WHERE "base64Image" IS NOT NULL`
   - ✅ On-the-fly feature extraction from stored images (as per documentation)
   - ✅ Compare against database during recognition
 - **Current Implementation**:
@@ -94,17 +94,46 @@ Based on the [ML Backend Services Documentation](file:///c%3A/Users/jamconcepcio
   - ✅ Queries database on each recognition request
   - ✅ Extracts features **on-the-fly** from database images (not pre-computed)
   - ✅ Automatic fallback to `test_images/` if database unavailable
-  - ✅ Supports active visitor filtering (`DB_ACTIVE_ONLY`)
   - ✅ Supports visitor limit for large databases (`DB_VISITOR_LIMIT`)
+  - ✅ **Production data loaded**: 9,640 visitors successfully imported
+- **Data Import Tool**:
+  - ✅ `database/copy_data.py` - Automated JSON data import script
+  - ✅ Auto-detects JSON files on Desktop (searches for `visitors.json`, `visitor_data.json`, etc.)
+  - ✅ Handles multiple JSON structures (direct arrays, nested objects with common keys)
+  - ✅ Validates required fields (id, base64Image) before insertion
+  - ✅ Supports dry-run mode for validation (`--dry-run` flag)
+  - ✅ Progress tracking (reports every 100 visitors)
+  - ✅ Error reporting with visitor ID tracking
+  - ✅ Uses `ON CONFLICT` for upsert behavior (updates existing records)
+  - ✅ Automatic timestamp management (`createdAt`, `updatedAt`)
+- **Database Schema**:
+  ```sql
+  CREATE TABLE visitors (
+    id VARCHAR(255) PRIMARY KEY,
+    "firstName" VARCHAR(255),
+    "lastName" VARCHAR(255),
+    "fullName" VARCHAR(255),
+    email VARCHAR(255),
+    phone VARCHAR(50),
+    "imageUrl" VARCHAR(500),
+    "base64Image" TEXT,
+    "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  ```
 - **Configuration**:
   ```bash
   USE_DATABASE=true
   DATABASE_URL=postgresql://user:password@host:port/database
   DB_TABLE_NAME=visitors
-  DB_VISITOR_ID_COLUMN=visitor_id
+  DB_VISITOR_ID_COLUMN=id
   DB_IMAGE_COLUMN=base64Image
   ```
-- **Impact**: ✅ **COMPLETE** - Production-ready database integration
+- **Current Database Status**:
+  - ✅ **9,640 visitors** with base64Image data loaded
+  - ✅ **360 visitors** skipped (missing base64Image - expected for incomplete records)
+  - ✅ Database ready for production recognition queries
+- **Impact**: ✅ **COMPLETE** - Production-ready database integration with real visitor data
 
 ---
 
@@ -187,11 +216,13 @@ Based on the [ML Backend Services Documentation](file:///c%3A/Users/jamconcepcio
 2. **✅ PostgreSQL database integration** - **COMPLETE**
    - ✅ `psycopg2-binary` in requirements
    - ✅ Database connection module (`database.py`) created
-   - ✅ Visitor image querying implemented: `SELECT visitor_id, base64Image FROM visitors WHERE base64Image IS NOT NULL`
+   - ✅ Visitor image querying implemented: `SELECT id, "base64Image" FROM visitors WHERE "base64Image" IS NOT NULL`
    - ✅ Features extracted on-the-fly from database images (not pre-computed)
    - ✅ `/api/v1/recognize` queries database when `USE_DATABASE=true`
    - ✅ Connection pooling for performance
    - ✅ Configurable via environment variables
+   - ✅ **Data import tool** (`database/copy_data.py`) for bulk JSON imports
+   - ✅ **Production data loaded**: 9,640 visitors imported successfully
 
 3. **Fix WebSocket endpoint**
    - DONE: WebSocket functionality implemented
@@ -252,11 +283,19 @@ Based on the [ML Backend Services Documentation](file:///c%3A/Users/jamconcepcio
    @app.post("/api/v1/recognize", response_model=VisitorRecognitionResponse)
    async def recognize_visitor_api(...):
        # ✅ Extracts features from input image
-       # ✅ Queries PostgreSQL: SELECT visitor_id, base64Image FROM visitors
+       # ✅ Queries PostgreSQL: SELECT id, "base64Image" FROM visitors
        # ✅ Extracts features on-the-fly from database images
-       # ✅ Compares against all visitors
+       # ✅ Compares against all visitors (9,640+ records available)
        # ✅ Returns { visitor_id, confidence, matched }
    ```
+
+5. **✅ Data Import Tool** - **COMPLETE**
+   - ✅ `database/copy_data.py` script for bulk JSON imports
+   - ✅ Auto-detects JSON files on Desktop
+   - ✅ Handles multiple JSON structures (arrays, nested objects)
+   - ✅ Validates required fields before import
+   - ✅ Progress tracking and error reporting
+   - ✅ **Successfully imported 9,640 visitors** from production JSON data
 
 4. **⚠️ Update WebSocket message format** - **TODO**
    ```python
@@ -272,6 +311,8 @@ Based on the [ML Backend Services Documentation](file:///c%3A/Users/jamconcepcio
 
 The current implementation has **significantly improved** and now includes:
 - ✅ **Full PostgreSQL database integration** with on-the-fly feature extraction
+- ✅ **Production database populated** with 9,640 visitor records
+- ✅ **Data import tool** for bulk JSON imports with validation
 - ✅ **Visitor recognition endpoint** (`/api/v1/recognize`) with correct path and response format
 - ✅ **WebSocket support** for real-time processing
 - ✅ **Face detection and comparison** functionality
@@ -283,6 +324,8 @@ The current implementation has **significantly improved** and now includes:
    - On-the-fly feature extraction (as per documentation)
    - Configurable via environment variables
    - Automatic fallback to test_images
+   - **Production data loaded**: 9,640 visitors with face images
+   - **Data import tool**: Automated JSON import with validation (`database/copy_data.py`)
 
 2. ✅ **Recognition Endpoint**: Fully compliant
    - Correct path: `/api/v1/recognize`
@@ -301,6 +344,7 @@ The current implementation has **significantly improved** and now includes:
 
 **Next Steps**: 
 - ✅ Database integration - **COMPLETE**
+- ✅ Production data import - **COMPLETE** (9,640 visitors loaded)
 - ✅ Recognition endpoint - **COMPLETE**
 - ✅ Response formats - **COMPLETE**
 - ⚠️ WebSocket path/format alignment - **Minor remaining task**

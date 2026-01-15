@@ -731,19 +731,12 @@ async def validate_image_api(image: UploadFile = File(None), image_base64: str =
         return ValidateImageResponse(valid=False, format=None, size=None)
 
 # --- WEBSOCKET FOR REAL-TIME FACE DETECTION/RECOGNITION ---
-@app.websocket("/ws/face")
+@app.websocket("/ws/realtime")
 async def websocket_face_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for real-time face detection/recognition.
-    Accepts JSON messages specifying an "action" and required data (e.g., 'detect', 'compare', 'recognize').
-    Accepts images in Base64. Responds with detection/recognition results.
-    Example JSON request:
-    {
-        "action": "detect",
-        "image_base64": "...",
-        "score_threshold": 0.6,
-        "return_landmarks": false
-    }
+    Expected message format: { "type": "frame", "image": "<base64>", ... }
+    Response: { "type": "results", faces: [...], count: <number> }
     """
     await websocket.accept()
     try:
@@ -752,114 +745,59 @@ async def websocket_face_endpoint(websocket: WebSocket):
             try:
                 req = json.loads(data)
             except json.JSONDecodeError:
-                await websocket.send_json({"error": "Invalid JSON input", "ok": False})
+                await websocket.send_json({
+                    "type": "error",
+                    "error": "Invalid JSON input"
+                })
                 continue
 
-            response = {}
+            # --- Only support { type: 'frame', image: ... } format (per docs) ---
+            req_type = req.get("type")
+            if req_type != "frame":
+                await websocket.send_json({
+                    "type": "error",
+                    "error": "Invalid request type. Must be { type: 'frame', image: ... }"
+                })
+                continue
+
+            image_b64 = req.get("image")
+            score_threshold = float(req.get("score_threshold", DEFAULT_SCORE_THRESHOLD))
+            return_landmarks = bool(req.get("return_landmarks", False))
+            if not image_b64:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": "Missing required field: image (base64)"
+                })
+                continue
+
             try:
-                # Handle different actions: 'detect', 'compare', 'recognize'
-                action = req.get("action")
-                if action == "detect":
-                    # Face detection on single image
-                    image_b64 = req.get("image_base64")
-                    score_threshold = float(req.get("score_threshold", DEFAULT_SCORE_THRESHOLD))
-                    return_landmarks = bool(req.get("return_landmarks", False))
-                    if not image_b64:
-                        response = {"error": "image_base64 required", "ok": False}
-                    else:
-                        try:
-                            img_np = decode_base64_image(image_b64)
-                            validate_image_size((img_np.shape[1], img_np.shape[0]))
-                            dets = inference.detect_faces(img_np, score_threshold=score_threshold, return_landmarks=return_landmarks)
-                            faces_list = []
-                            if dets:
-                                for r in dets:
-                                    if return_landmarks:
-                                        faces_list.append(r.tolist() if hasattr(r, 'tolist') else list(r))
-                                    else:
-                                        faces_list.append([float(r[0]), float(r[1]), float(r[2]), float(r[3])])
-                            response = {
-                                "faces": faces_list,
-                                "count": len(faces_list),
-                                "ok": True
-                            }
-                        except Exception as ex:
-                            response = {"error": str(ex), "ok": False}
-                elif action == "compare":
-                    # Face comparison between two images
-                    image1_b64 = req.get("image1_base64")
-                    image2_b64 = req.get("image2_base64")
-                    threshold = float(req.get("threshold", DEFAULT_COMPARE_THRESHOLD))
-                    if not image1_b64 or not image2_b64:
-                        response = {"error": "image1_base64 and image2_base64 required", "ok": False}
-                    else:
-                        try:
-                            img1 = decode_base64_image(image1_b64)
-                            img2 = decode_base64_image(image2_b64)
-                            validate_image_size((img1.shape[1], img1.shape[0]))
-                            validate_image_size((img2.shape[1], img2.shape[0]))
-                            faces1 = inference.detect_faces(img1, return_landmarks=True)
-                            faces2 = inference.detect_faces(img2, return_landmarks=True)
-                            if not faces1 or not faces2:
-                                response = {"error": "No face detected in one or both images", "ok": False}
-                            else:
-                                feature1 = inference.extract_face_features(img1, faces1[0])
-                                feature2 = inference.extract_face_features(img2, faces2[0])
-                                if feature1 is None or feature2 is None:
-                                    response = {"error": "Failed to extract features", "ok": False}
-                                else:
-                                    score, is_match = inference.compare_face_features(feature1, feature2, threshold=threshold)
-                                    response = {
-                                        "similarity_score": float(score),
-                                        "is_match": bool(is_match),
-                                        "ok": True
-                                    }
-                        except Exception as ex:
-                            response = {"error": str(ex), "ok": False}
-                elif action == "recognize":
-                    # Recognize visitor among gallery
-                    image_b64 = req.get("image_base64")
-                    threshold = float(req.get("threshold", DEFAULT_COMPARE_THRESHOLD))
-                    if not image_b64:
-                        response = {"error": "image_base64 required", "ok": False}
-                    else:
-                        try:
-                            img_np = decode_base64_image(image_b64)
-                            validate_image_size((img_np.shape[1], img_np.shape[0]))
-                            faces = inference.detect_faces(img_np, return_landmarks=True)
-                            if not faces:
-                                response = {"visitor": None, "match_score": None, "matches": [], "ok": True}
-                            else:
-                                query_feature = inference.extract_face_features(img_np, faces[0])
-                                if query_feature is None:
-                                    response = {"visitor": None, "match_score": None, "matches": [], "ok": True}
-                                else:
-                                    results = []
-                                    for visitor_name, visitor in VISITOR_FEATURES.items():
-                                        db_feature = visitor.get("feature")
-                                        score, is_match = inference.compare_face_features(query_feature, db_feature, threshold=threshold)
-                                        results.append({
-                                            "visitor": visitor_name,
-                                            "match_score": float(score),
-                                            "is_match": bool(is_match),
-                                            "filename": os.path.basename(visitor.get("path", ""))
-                                        })
-                                    results.sort(key=lambda x: x["match_score"], reverse=True)
-                                    best_match = results[0] if results else None
-                                    recognized_name = best_match["visitor"] if best_match and best_match["is_match"] else None
-                                    match_score = best_match["match_score"] if best_match and best_match["is_match"] else None
-                                    response = {
-                                        "visitor": recognized_name,
-                                        "match_score": match_score,
-                                        "matches": results,
-                                        "ok": True
-                                    }
-                        except Exception as ex:
-                            response = {"error": str(ex), "ok": False}
-                else:
-                    response = {"error": "Unknown or missing action", "ok": False}
+                img_np = decode_base64_image(image_b64)
+                validate_image_size((img_np.shape[1], img_np.shape[0]))
+                dets = inference.detect_faces(img_np, score_threshold=score_threshold, return_landmarks=return_landmarks)
+                faces_list = []
+                if dets:
+                    for r in dets:
+                        # r shape: [x, y, w, h, score, ...] (landmarks after 5th field)
+                        bbox = [float(r[0]), float(r[1]), float(r[2]), float(r[3])]
+                        score = float(r[4]) if len(r) > 4 else None
+                        face_obj = {"bbox": bbox}
+                        if score is not None:
+                            face_obj["confidence"] = score
+                        if return_landmarks and len(r) > 9:
+                            # YuNet returns landmarks after 5th index: [x, y, w, h, score, l0x, l0y, ... l4x, l4y]
+                            landmarks = [float(x) for x in r[5:15]]
+                            face_obj["landmarks"] = landmarks
+                        faces_list.append(face_obj)
+                response = {
+                    "type": "results",
+                    "faces": faces_list,
+                    "count": len(faces_list)
+                }
             except Exception as ex:
-                response = {"error": str(ex), "ok": False}
+                response = {
+                    "type": "error",
+                    "error": str(ex)
+                }
 
             await websocket.send_json(response)
     except WebSocketDisconnect:
@@ -868,7 +806,7 @@ async def websocket_face_endpoint(websocket: WebSocket):
     except Exception as e:
         # Catch all, try to tell client if possible
         try:
-            await websocket.send_json({"error": str(e), "ok": False})
+            await websocket.send_json({"type": "error", "error": str(e)})
         except Exception:
             pass
 
