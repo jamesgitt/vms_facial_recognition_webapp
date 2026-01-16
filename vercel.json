@@ -1,6 +1,0 @@
-{
-  "buildCommand": "cd apps/facial_recog_web_app && npm install && npm run build",
-  "outputDirectory": "apps/facial_recog_web_app/.next",
-  "installCommand": "cd apps/facial_recog_web_app && npm install",
-  "framework": "nextjs"
-}
