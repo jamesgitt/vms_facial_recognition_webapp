@@ -61,6 +61,7 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
+  password      String? // For email/password authentication
   accounts      Account[]
   sessions      Session[]
   posts         Post[]
@@ -72,4 +73,24 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// Visitors table (managed by backend, not by Prisma)
+// This is here so Prisma doesn't try to drop it during migrations
+model visitors {
+  id          String   @id @db.VarChar(255)
+  firstName   String?  @map("firstName") @db.VarChar(255)
+  lastName    String?  @map("lastName") @db.VarChar(255)
+  fullName    String?  @map("fullName") @db.VarChar(255)
+  email       String?  @db.VarChar(255)
+  phone       String?  @db.VarChar(50)
+  imageUrl    String?  @map("imageUrl") @db.VarChar(500)
+  base64Image String?  @map("base64Image") @db.Text
+  createdAt   DateTime @default(now()) @map("createdAt")
+  updatedAt   DateTime @updatedAt @map("updatedAt")
+
+  @@index([createdAt])
+  @@index([email])
+  @@index([fullName])
+  @@map("visitors")
 }
