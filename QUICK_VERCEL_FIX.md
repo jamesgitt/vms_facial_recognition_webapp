@@ -26,7 +26,24 @@
 
 ---
 
-### 3. **Build is Failing Silently**
+### 3. **Build Completes Too Fast (16ms or less)**
+
+**Symptom:** Build logs show "Build Completed in /vercel/output [16ms]" or similar very fast times.
+
+**This means:** Vercel is not finding your project files - **Root Directory is wrong!**
+
+**Fix:**
+1. Vercel Dashboard → Settings → General
+2. Find "Root Directory"
+3. Set to: `apps/facial_recog_web_app` (exactly this, no leading dot or slash)
+4. Click "Save"
+5. **Redeploy** - you should see a much longer build time (30+ seconds)
+
+**Expected build time:** A Next.js app should take 30-120 seconds to build. If it's under 1 second, the root directory is wrong.
+
+---
+
+### 4. **Build is Failing Silently**
 
 **Check Build Logs:**
 1. Vercel Dashboard → Deployments
