@@ -35,6 +35,7 @@ export const authConfig = {
   providers: [
     // Email/Password authentication
     CredentialsProvider({
+      id: "credentials",
       name: "Email",
       credentials: {
         email: { label: "Email", type: "email" },
@@ -42,16 +43,26 @@ export const authConfig = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
+          console.log("[Auth] Missing credentials");
           return null;
         }
 
         try {
+          // Normalize email (lowercase and trim)
+          const email = credentials.email.toLowerCase().trim();
+          
           // Find user by email
           const user = await db.user.findUnique({
-            where: { email: credentials.email },
+            where: { email },
           });
 
-          if (!user || !user.password) {
+          if (!user) {
+            console.log(`[Auth] User not found: ${email}`);
+            return null;
+          }
+
+          if (!user.password) {
+            console.log(`[Auth] User has no password set: ${email}`);
             return null;
           }
 
@@ -59,9 +70,11 @@ export const authConfig = {
           const isValid = await compare(credentials.password, user.password);
           
           if (!isValid) {
+            console.log(`[Auth] Invalid password for: ${email}`);
             return null;
           }
 
+          console.log(`[Auth] Successfully authenticated: ${email}`);
           return {
             id: user.id,
             email: user.email,
@@ -69,7 +82,7 @@ export const authConfig = {
             image: user.image,
           };
         } catch (error) {
-          console.error("Auth error:", error);
+          console.error("[Auth] Error during authentication:", error);
           return null;
         }
       },

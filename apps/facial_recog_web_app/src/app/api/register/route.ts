@@ -13,7 +13,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const validatedData = registerSchema.parse(body);
-    const { email, password, name } = validatedData;
+    let { email, password, name } = validatedData;
+
+    // Normalize email (lowercase and trim)
+    email = email.toLowerCase().trim();
 
     // Check if user already exists
     const existingUser = await db.user.findUnique({
