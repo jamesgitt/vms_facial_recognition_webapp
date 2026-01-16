@@ -89,7 +89,7 @@ You can create a registration form in your frontend. The API endpoint is:
 1. Start your dev server:
    ```bash
    npm run dev
-   ```
+   ```x
 
 2. Go to `http://localhost:3000`
 3. Click "Sign in"

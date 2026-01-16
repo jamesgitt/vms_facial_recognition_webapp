@@ -98,7 +98,7 @@ export const authConfig = {
     },
   },
   pages: {
-    signIn: "/api/auth/signin",
+    signIn: "/signin",
   },
   debug: process.env.NODE_ENV === "development",
 } satisfies NextAuthConfig;
