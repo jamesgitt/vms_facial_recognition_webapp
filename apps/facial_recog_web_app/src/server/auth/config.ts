@@ -49,13 +49,14 @@ export const authConfig = {
 
         try {
           // Normalize email (lowercase and trim)
-          // Type assertion needed because credentials types are generic
-          const email = typeof credentials.email === "string" 
-            ? credentials.email.toLowerCase().trim()
-            : String(credentials.email).toLowerCase().trim();
-          const password = typeof credentials.password === "string"
-            ? credentials.password
-            : String(credentials.password);
+          // Type guard to ensure email and password are strings
+          if (typeof credentials.email !== "string" || typeof credentials.password !== "string") {
+            console.log("[Auth] Invalid credential types");
+            return null;
+          }
+
+          const email = credentials.email.toLowerCase().trim();
+          const password = credentials.password;
           
           // Find user by email
           const user = await db.user.findUnique({
