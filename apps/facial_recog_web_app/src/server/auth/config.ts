@@ -122,4 +122,6 @@ export const authConfig = {
     signIn: "/signin",
   },
   debug: process.env.NODE_ENV === "development",
+  // Trust host for Docker/development environments
+  trustHost: true,
 } satisfies NextAuthConfig;

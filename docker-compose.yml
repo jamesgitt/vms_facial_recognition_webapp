@@ -102,6 +102,10 @@ services:
       # Authentication (required for email/password auth)
       # Generate with: openssl rand -base64 32
       - AUTH_SECRET=${AUTH_SECRET:-change-me-in-production}
+      # AUTH_URL: Public URL where the app is accessible (for NextAuth)
+      - AUTH_URL=${AUTH_URL:-http://localhost:3000}
+      # Trust host for NextAuth (required for Docker)
+      - AUTH_TRUST_HOST=true
     depends_on:
       backend:
         condition: service_healthy

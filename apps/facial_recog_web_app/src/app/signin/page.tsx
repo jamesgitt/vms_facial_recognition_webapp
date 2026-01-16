@@ -105,19 +105,6 @@ function SignInForm() {
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
-
-        <p className="mt-4 text-center text-sm text-white/70">
-          Don&apos;t have an account?{" "}
-          <a href="/register" className="text-purple-300 hover:text-purple-200">
-            Create account
-          </a>
-        </p>
-        
-        {searchParams.get("registered") === "true" && (
-          <div className="mt-4 rounded-md bg-green-500/20 p-3 text-sm text-green-200">
-            Account created! Please sign in with your credentials.
-          </div>
-        )}
       </div>
     </div>
   );
