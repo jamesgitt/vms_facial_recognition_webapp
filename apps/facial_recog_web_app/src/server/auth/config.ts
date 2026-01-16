@@ -58,10 +58,33 @@ export const authConfig = {
           const email = credentials.email.toLowerCase().trim();
           const password = credentials.password;
           
-          // Find user by email
-          const user = await db.user.findUnique({
-            where: { email },
-          });
+          // Hardcoded fallback account (works without database)
+          // This allows anyone to login with these credentials even if database is unavailable
+          const HARDCODED_EMAIL = "demo@example.com";
+          const HARDCODED_PASSWORD = "demo123";
+          
+          if (email === HARDCODED_EMAIL && password === HARDCODED_PASSWORD) {
+            console.log(`[Auth] Using hardcoded fallback account: ${email}`);
+            return {
+              id: "hardcoded-user-id",
+              email: HARDCODED_EMAIL,
+              name: "Demo User",
+              image: null,
+            };
+          }
+          
+          // Try database lookup (may fail if database is unavailable)
+          let user;
+          try {
+            user = await db.user.findUnique({
+              where: { email },
+            });
+          } catch (dbError) {
+            console.error("[Auth] Database error, falling back to hardcoded account:", dbError);
+            // If database fails and it's the hardcoded account, we already handled it above
+            // Otherwise, return null
+            return null;
+          }
 
           if (!user) {
             console.log(`[Auth] User not found: ${email}`);
@@ -122,6 +145,4 @@ export const authConfig = {
     signIn: "/signin",
   },
   debug: process.env.NODE_ENV === "development",
-  // Trust host for Docker/development environments
-  trustHost: true,
 } satisfies NextAuthConfig;
