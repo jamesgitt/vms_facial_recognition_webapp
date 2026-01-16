@@ -49,7 +49,9 @@ export const authConfig = {
 
         try {
           // Normalize email (lowercase and trim)
-          const email = credentials.email.toLowerCase().trim();
+          // Type assertion needed because credentials types are generic
+          const email = String(credentials.email).toLowerCase().trim();
+          const password = String(credentials.password);
           
           // Find user by email
           const user = await db.user.findUnique({
@@ -67,7 +69,7 @@ export const authConfig = {
           }
 
           // Verify password
-          const isValid = await compare(credentials.password, user.password);
+          const isValid = await compare(password, user.password);
           
           if (!isValid) {
             console.log(`[Auth] Invalid password for: ${email}`);
