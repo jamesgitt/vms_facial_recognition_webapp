@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 
 import { db } from "~/server/db";
+import { env } from "~/env";
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -44,36 +45,42 @@ export const authConfig = {
           return null;
         }
 
-        // Find user by email
-        const user = await db.user.findUnique({
-          where: { email: credentials.email },
-        });
+        try {
+          // Find user by email
+          const user = await db.user.findUnique({
+            where: { email: credentials.email },
+          });
 
-        if (!user || !user.password) {
+          if (!user || !user.password) {
+            return null;
+          }
+
+          // Verify password
+          const isValid = await compare(credentials.password, user.password);
+          
+          if (!isValid) {
+            return null;
+          }
+
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            image: user.image,
+          };
+        } catch (error) {
+          console.error("Auth error:", error);
           return null;
         }
-
-        // Verify password
-        const isValid = await compare(credentials.password, user.password);
-        
-        if (!isValid) {
-          return null;
-        }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          image: user.image,
-        };
       },
     }),
   ],
-  // Note: PrismaAdapter doesn't work with CredentialsProvider
-  // We'll handle sessions manually
+  // JWT session strategy (required for CredentialsProvider)
   session: {
     strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60, // 30 days
   },
+  secret: env.AUTH_SECRET,
   callbacks: {
     session: ({ session, token }) => ({
       ...session,
@@ -85,6 +92,7 @@ export const authConfig = {
     jwt: ({ token, user }) => {
       if (user) {
         token.sub = user.id;
+        token.email = user.email;
       }
       return token;
     },
@@ -92,4 +100,5 @@ export const authConfig = {
   pages: {
     signIn: "/api/auth/signin",
   },
+  debug: process.env.NODE_ENV === "development",
 } satisfies NextAuthConfig;
