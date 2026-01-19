@@ -16,6 +16,20 @@ interface ComparisonResponse {
   features2?: number[];
 }
 
+interface RecognitionResponse {
+  visitor_id: string | null;
+  confidence: number | null;
+  matched: boolean;
+  visitor?: string | null;
+  match_score?: number | null;
+  matches?: Array<{
+    visitor_id?: string;
+    visitor?: string;
+    match_score?: number;
+    is_match?: boolean;
+  }>;
+}
+
 export function FaceRecognitionCamera() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -37,6 +51,11 @@ export function FaceRecognitionCamera() {
   const [referenceFace, setReferenceFace] = useState<string | null>(null);
   const [comparisonResult, setComparisonResult] = useState<ComparisonResponse | null>(null);
   const [enableComparison, setEnableComparison] = useState(false);
+  
+  // Mode selection: 'detect' | 'compare' | 'recognize'
+  const [mode, setMode] = useState<"detect" | "compare" | "recognize">("detect");
+  const [recognitionResult, setRecognitionResult] = useState<RecognitionResponse | null>(null);
+  const [recognitionThreshold, setRecognitionThreshold] = useState(0.363);
   
   const frameCountRef = useRef(0);
   const lastTimeRef = useRef(Date.now());
@@ -217,6 +236,33 @@ export function FaceRecognitionCamera() {
     [apiUrl, comparisonThreshold]
   );
 
+  // Recognize face from database via API
+  const recognizeFace = useCallback(
+    async (imageBase64: string): Promise<RecognitionResponse | null> => {
+      try {
+        const formData = new FormData();
+        formData.append("image_base64", imageBase64);
+        formData.append("threshold", recognitionThreshold.toString());
+
+        const response = await fetch(`${apiUrl}/api/v1/recognize`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+
+        const data = (await response.json()) as RecognitionResponse;
+        return data;
+      } catch (error) {
+        console.error("Recognition error:", error);
+        return null;
+      }
+    },
+    [apiUrl, recognitionThreshold]
+  );
+
   // Capture reference face
   const captureReferenceFace = useCallback(() => {
     const imageBase64 = frameToBase64();
@@ -233,6 +279,23 @@ export function FaceRecognitionCamera() {
     setEnableComparison(false);
     setComparisonResult(null);
     setStatus("Reference face cleared.");
+  }, []);
+
+  // Handle mode change
+  const handleModeChange = useCallback((newMode: "detect" | "compare" | "recognize") => {
+    setMode(newMode);
+    setComparisonResult(null);
+    setRecognitionResult(null);
+    if (newMode !== "compare") {
+      setEnableComparison(false);
+    }
+    if (newMode === "detect") {
+      setStatus("Face detection mode active");
+    } else if (newMode === "compare") {
+      setStatus("Face comparison mode - Capture a reference face to start");
+    } else if (newMode === "recognize") {
+      setStatus("Database recognition mode active");
+    }
   }, []);
 
   // Draw bounding boxes
@@ -253,17 +316,27 @@ export function FaceRecognitionCamera() {
       const w = face[2] ?? 0;
       const h = face[3] ?? 0;
 
-      // Choose color based on comparison result
+      // Choose color based on mode and results
       let color = "#4CAF50"; // Green for detected
       let label = `Face ${index + 1}`;
       
-      if (enableComparison && comparisonResult) {
+      if (mode === "compare" && enableComparison && comparisonResult) {
         if (comparisonResult.is_match) {
           color = "#00FF00"; // Bright green for match
           label = `Match (${(comparisonResult.similarity_score * 100).toFixed(1)}%)`;
         } else {
           color = "#FFA500"; // Orange for no match
           label = `No Match (${(comparisonResult.similarity_score * 100).toFixed(1)}%)`;
+        }
+      } else if (mode === "recognize" && recognitionResult) {
+        if (recognitionResult.matched) {
+          color = "#00FF00"; // Bright green for recognized
+          const confidence = recognitionResult.confidence ?? 0;
+          const visitorId = recognitionResult.visitor_id ?? recognitionResult.visitor ?? "Unknown";
+          label = `${visitorId} (${(confidence * 100).toFixed(1)}%)`;
+        } else {
+          color = "#FF6B6B"; // Red for not recognized
+          label = "Not Recognized";
         }
       }
 
@@ -281,7 +354,7 @@ export function FaceRecognitionCamera() {
       ctx.font = "bold 14px Arial";
       ctx.fillText(label, x + 5, y - 8);
     });
-  }, [enableComparison, comparisonResult]);
+  }, [mode, enableComparison, comparisonResult, recognitionResult]);
 
   // Process frame
   const processFrame = useCallback(async () => {
@@ -310,11 +383,18 @@ export function FaceRecognitionCamera() {
         // Check again if still running after async operation
         if (isRunning) {
           if (result.faces && result.faces.length > 0) {
-            // If comparison is enabled and we have a reference face, compare
-            if (enableComparison && referenceFace) {
+            // Handle different modes
+            if (mode === "compare" && enableComparison && referenceFace) {
+              // Compare mode: compare reference face with current frame
               const comparison = await compareFaces(referenceFace, imageBase64);
               if (comparison) {
                 setComparisonResult(comparison);
+              }
+            } else if (mode === "recognize") {
+              // Recognize mode: recognize face from database
+              const recognition = await recognizeFace(imageBase64);
+              if (recognition) {
+                setRecognitionResult(recognition);
               }
             }
             
@@ -324,8 +404,9 @@ export function FaceRecognitionCamera() {
           } else if (result.error) {
             setStatus(`Error: ${result.error}`);
           } else {
-            // No faces detected, clear comparison result
+            // No faces detected, clear results
             setComparisonResult(null);
+            setRecognitionResult(null);
             drawResults([]);
           }
         }
@@ -356,7 +437,7 @@ export function FaceRecognitionCamera() {
     } else {
       animationFrameRef.current = undefined;
     }
-  }, [isRunning, processInterval, frameToBase64, detectFaces, drawResults, compareFaces, enableComparison, referenceFace]);
+    }, [isRunning, processInterval, frameToBase64, detectFaces, drawResults, compareFaces, enableComparison, referenceFace, mode, recognizeFace]);
 
   // Start processing when camera is running
   useEffect(() => {
@@ -413,6 +494,40 @@ export function FaceRecognitionCamera() {
           />
         </div>
 
+        {/* Mode Selection */}
+        <div className="mb-6 flex flex-wrap justify-center gap-4">
+          <button
+            onClick={() => handleModeChange("detect")}
+            className={`rounded-lg px-6 py-2 font-semibold text-white transition ${
+              mode === "detect"
+                ? "bg-purple-600 hover:bg-purple-700"
+                : "bg-gray-400 hover:bg-gray-500"
+            }`}
+          >
+            🔍 Detect Faces
+          </button>
+          <button
+            onClick={() => handleModeChange("compare")}
+            className={`rounded-lg px-6 py-2 font-semibold text-white transition ${
+              mode === "compare"
+                ? "bg-blue-600 hover:bg-blue-700"
+                : "bg-gray-400 hover:bg-gray-500"
+            }`}
+          >
+            ⚖️ Compare Faces
+          </button>
+          <button
+            onClick={() => handleModeChange("recognize")}
+            className={`rounded-lg px-6 py-2 font-semibold text-white transition ${
+              mode === "recognize"
+                ? "bg-green-600 hover:bg-green-700"
+                : "bg-gray-400 hover:bg-gray-500"
+            }`}
+          >
+            🎯 Recognize from Database
+          </button>
+        </div>
+
         {/* Controls */}
         <div className="mb-6 flex flex-wrap justify-center gap-4">
           <button
@@ -429,7 +544,7 @@ export function FaceRecognitionCamera() {
           >
             Stop Camera
           </button>
-          {isRunning && (
+          {isRunning && mode === "compare" && (
             <>
               <button
                 onClick={captureReferenceFace}
@@ -537,7 +652,8 @@ export function FaceRecognitionCamera() {
             />
           </div>
 
-          {enableComparison && (
+          {/* Comparison Mode Settings */}
+          {mode === "compare" && enableComparison && (
             <div className="mb-4 rounded-lg border-2 border-blue-300 bg-blue-50 p-4">
               <h4 className="mb-2 font-semibold text-blue-800">Face Comparison Active</h4>
               <div className="mb-2">
@@ -563,6 +679,59 @@ export function FaceRecognitionCamera() {
                     <strong>Similarity:</strong> {(comparisonResult.similarity_score * 100).toFixed(2)}% |{" "}
                     <strong>Match:</strong> {comparisonResult.is_match ? "Yes ✓" : "No ✗"}
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Recognition Mode Settings */}
+          {mode === "recognize" && (
+            <div className="mb-4 rounded-lg border-2 border-green-300 bg-green-50 p-4">
+              <h4 className="mb-2 font-semibold text-green-800">Database Recognition Active</h4>
+              <div className="mb-2">
+                <label className="mb-2 block text-gray-700">
+                  Recognition Threshold:{" "}
+                  <span className="font-bold text-purple-600">
+                    {recognitionThreshold.toFixed(3)}
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.01"
+                  value={recognitionThreshold}
+                  onChange={(e) => setRecognitionThreshold(parseFloat(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+              {recognitionResult && (
+                <div className="mt-2 space-y-2">
+                  <div className={`rounded p-3 ${recognitionResult.matched ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                    <div className="font-semibold">
+                      {recognitionResult.matched ? "✓ Recognized" : "✗ Not Recognized"}
+                    </div>
+                    {recognitionResult.matched && (
+                      <div className="mt-1">
+                        <div><strong>Visitor ID:</strong> {recognitionResult.visitor_id ?? recognitionResult.visitor ?? "Unknown"}</div>
+                        <div><strong>Confidence:</strong> {((recognitionResult.confidence ?? 0) * 100).toFixed(2)}%</div>
+                      </div>
+                    )}
+                  </div>
+                  {recognitionResult.matches && recognitionResult.matches.length > 0 && (
+                    <div className="rounded bg-gray-100 p-2">
+                      <div className="text-sm font-semibold text-gray-700">Top Matches:</div>
+                      <div className="mt-1 space-y-1">
+                        {recognitionResult.matches.slice(0, 5).map((match, idx) => (
+                          <div key={idx} className="text-xs text-gray-600">
+                            {idx + 1}. {match.visitor_id ?? match.visitor ?? "Unknown"} - 
+                            {match.match_score ? ` ${(match.match_score * 100).toFixed(1)}%` : " N/A"}
+                            {match.is_match && " ✓"}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
