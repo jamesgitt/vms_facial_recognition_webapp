@@ -7,14 +7,18 @@ for efficient face feature matching using cosine similarity.
 import os
 import pickle
 import numpy as np
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, TYPE_CHECKING, Any
 from pathlib import Path
 
-try:
+if TYPE_CHECKING:
     import faiss
+
+try:
+    import faiss  # type: ignore[import-untyped]  # faiss-cpu package imports as 'faiss'
     FAISS_AVAILABLE = True
 except ImportError:
     FAISS_AVAILABLE = False
+    faiss = None  # type: ignore[assignment]
     print("Warning: FAISS not available. Install with: pip install faiss-cpu")
 
 # Configuration
@@ -57,7 +61,7 @@ class FAISSIndexManager:
         self.index_dir = Path(index_dir)
         self.index_dir.mkdir(parents=True, exist_ok=True)
         
-        self.index: Optional[faiss.Index] = None
+        self.index: Optional[Any] = None  # faiss.Index when FAISS is available
         self.metadata: Dict[int, Dict] = {}  # Maps index position to visitor info
         self.visitor_id_to_index: Dict[str, int] = {}  # Maps visitor_id to index position
         self.next_index = 0
@@ -65,7 +69,7 @@ class FAISSIndexManager:
         # Load existing index if available
         self._load_index()
     
-    def _create_index(self) -> faiss.Index:
+    def _create_index(self) -> Any:  # Returns faiss.Index when FAISS is available
         """Create a new HNSW index for inner product (cosine similarity)."""
         # Use IndexHNSWFlat with inner product metric for cosine similarity
         # For normalized vectors, inner product = cosine similarity
@@ -73,6 +77,8 @@ class FAISSIndexManager:
         # IndexHNSWFlat uses L2 by default, but we can use inner product with normalized vectors
         # Actually, for cosine similarity with normalized vectors, we use IndexHNSWFlat
         # and convert L2 distance to cosine similarity in search
+        if not FAISS_AVAILABLE or faiss is None:
+            raise RuntimeError("FAISS is not available")
         index = faiss.IndexHNSWFlat(self.dimension, self.m)
         index.hnsw.efConstruction = self.ef_construction
         index.hnsw.efSearch = self.ef_search
