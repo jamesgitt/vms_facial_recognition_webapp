@@ -19,7 +19,6 @@ import io
 import json
 import base64
 import datetime
-import threading
 from typing import List, Tuple, Optional, Any
 from pathlib import Path
 
@@ -184,28 +183,20 @@ def load_models():
             )
             print(f"✓ Database has {len(visitors)} visitors available for recognition")
             
-            # Build HNSW index if available (run asynchronously to avoid blocking startup)
+            # Build HNSW index if available
             if hnsw_index_manager and len(visitors) > 0:
                 print(f"Building HNSW index from {len(visitors)} database visitors (this may take a while)...")
                 def get_visitors():
                     return visitors
                 
-                # Run HNSW index building in background to avoid blocking startup
-                def build_index_async():
-                    try:
-                        count = hnsw_index_manager.rebuild_from_database(
-                            get_visitors_func=get_visitors,
-                            extract_feature_func=extract_feature_from_visitor_data
-                        )
-                        if count > 0:
-                            print(f"✓ HNSW index built with {count} visitors (fast ANN search enabled)")
-                        else:
-                            print("⚠ HNSW index build failed, falling back to linear search")
-                    except Exception as e:
-                        print(f"⚠ HNSW index build error: {e}, falling back to linear search")
-                
-                threading.Thread(target=build_index_async).start()
-                print("✓ HNSW index building started in background (using linear search until complete)")
+                count = hnsw_index_manager.rebuild_from_database(
+                    get_visitors_func=get_visitors,
+                    extract_feature_func=extract_feature_from_visitor_data
+                )
+                if count > 0:
+                    print(f"✓ HNSW index built with {count} visitors (fast ANN search enabled)")
+                else:
+                    print("⚠ HNSW index build failed, falling back to linear search")
         except Exception as e:
             print(f"⚠ Error loading visitors from database: {e}, falling back to test_images")
             USE_DATABASE = False
@@ -246,22 +237,15 @@ def load_models():
             
             print(f"Loaded {len(VISITOR_FEATURES)} visitors from test_images")
             
-            # Build HNSW index from test_images if available (run asynchronously)
+            # Build HNSW index from test_images if available
             if hnsw_index_manager and batch_data:
                 print(f"Building HNSW index from {len(batch_data)} test_images visitors...")
-                def build_test_images_index():
-                    try:
-                        count = hnsw_index_manager.add_visitors_batch(batch_data)
-                        if count > 0:
-                            hnsw_index_manager.save()
-                            print(f"✓ HNSW index built with {count} test_images visitors (fast ANN search enabled)")
-                        else:
-                            print("⚠ HNSW index build failed for test_images, using linear search.")
-                    except Exception as e:
-                        print(f"⚠ HNSW index build error for test_images: {e}, using linear search.")
-                
-                threading.Thread(target=build_test_images_index).start()
-                print("✓ HNSW index building started in background (using linear search until complete)")
+                count = hnsw_index_manager.add_visitors_batch(batch_data)
+                if count > 0:
+                    hnsw_index_manager.save()
+                    print(f"✓ HNSW index built with {count} test_images visitors (fast ANN search enabled)")
+                else:
+                    print("⚠ HNSW index build failed for test_images, using linear search.")
 
 # --- PYDANTIC SCHEMAS ---
 class DetectionRequest(BaseModel):

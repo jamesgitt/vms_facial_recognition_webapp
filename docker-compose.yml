@@ -76,7 +76,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 600s  # 10 minutes to allow HNSW index building during startup
     depends_on:
       postgres:
         condition: service_healthy
