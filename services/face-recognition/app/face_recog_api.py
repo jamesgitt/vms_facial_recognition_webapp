@@ -59,6 +59,15 @@ except ImportError:
     DB_AVAILABLE = False
     print("Warning: database module not available. Using test images fallback.")
 
+# FAISS index for fast ANN search
+try:
+    from faiss_index import FAISSIndexManager
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
+    FAISSIndexManager = None
+    print("Warning: FAISS index manager not available. Using linear search.")
+
 # --- CONFIGURATION ---
 DEFAULT_SCORE_THRESHOLD = 0.6
 DEFAULT_COMPARE_THRESHOLD = 0.363
@@ -101,10 +110,11 @@ app.add_middleware(
 # --- GLOBAL INFERENCE/MODEL LOADING ---
 face_detector = None
 face_recognizer = None
+faiss_index_manager = None  # FAISS index for fast ANN search
 
 @app.on_event("startup")
 def load_models():
-    global face_detector, face_recognizer, VISITOR_FEATURES
+    global face_detector, face_recognizer, VISITOR_FEATURES, faiss_index_manager
     try:
         face_detector = inference.get_face_detector(MODELS_PATH)
         face_recognizer = inference.get_face_recognizer(MODELS_PATH)
@@ -112,6 +122,17 @@ def load_models():
         print("Error loading models:", e)
         face_detector = None
         face_recognizer = None
+    
+    # Initialize FAISS index manager
+    if FAISS_AVAILABLE and FAISSIndexManager is not None:
+        try:
+            faiss_index_manager = FAISSIndexManager(index_dir=MODELS_PATH)
+            print("✓ FAISS index manager initialized")
+        except Exception as e:
+            print(f"⚠ Error initializing FAISS index: {e}")
+            faiss_index_manager = None
+    else:
+        faiss_index_manager = None
 
     # Initialize database connection if enabled
     global USE_DATABASE
@@ -131,9 +152,27 @@ def load_models():
     # Load visitor images from database or test_images (fallback)
     VISITOR_FEATURES.clear()
     
+    def extract_feature_from_visitor_data(visitor_data):
+        """Helper function to extract feature from visitor data."""
+        try:
+            base64_image = visitor_data.get(DB_IMAGE_COLUMN)
+            if not base64_image:
+                return None
+            
+            img_cv_db = image_loader.load_from_base64(base64_image)
+            db_faces = inference.detect_faces(img_cv_db, return_landmarks=True)
+            if db_faces is None or len(db_faces) == 0:
+                return None
+            
+            db_feature = inference.extract_face_features(img_cv_db, db_faces[0])
+            return db_feature
+        except Exception as e:
+            print(f"Error extracting feature: {e}")
+            return None
+    
     if USE_DATABASE and DB_AVAILABLE:
-        # Database mode: Don't pre-load features, extract on-the-fly during recognition
-        print("✓ Using database for visitor recognition (on-the-fly feature extraction)")
+        # Database mode: Build FAISS index if available, otherwise use on-the-fly extraction
+        print("✓ Using database for visitor recognition")
         try:
             visitors = database.get_visitor_images_from_db(
                 table_name=DB_TABLE_NAME,
@@ -143,6 +182,21 @@ def load_models():
                 active_only=DB_ACTIVE_ONLY
             )
             print(f"✓ Database has {len(visitors)} visitors available for recognition")
+            
+            # Build FAISS index if available
+            if faiss_index_manager and len(visitors) > 0:
+                print("Building FAISS index from database visitors...")
+                def get_visitors():
+                    return visitors
+                
+                count = faiss_index_manager.rebuild_from_database(
+                    get_visitors_func=get_visitors,
+                    extract_feature_func=extract_feature_from_visitor_data
+                )
+                if count > 0:
+                    print(f"✓ FAISS index built with {count} visitors (fast ANN search enabled)")
+                else:
+                    print("⚠ FAISS index build failed, falling back to linear search")
         except Exception as e:
             print(f"⚠ Error loading visitors from database: {e}, falling back to test_images")
             USE_DATABASE = False
@@ -151,6 +205,8 @@ def load_models():
     if not USE_DATABASE or not DB_AVAILABLE:
         if os.path.isdir(VISITOR_IMAGES_DIR):
             print(f"Loading gallery visitors from {VISITOR_IMAGES_DIR}")
+            batch_data = []
+            
             for fname in os.listdir(VISITOR_IMAGES_DIR):
                 if not fname.lower().endswith(tuple(ALLOWED_FORMATS)):
                     continue
@@ -172,9 +228,21 @@ def load_models():
                             "feature": feature,
                             "path": fpath
                         }
+                        
+                        # Add to FAISS index if available
+                        if faiss_index_manager:
+                            batch_data.append((visitor_name, feature, {"path": fpath}))
                 except Exception as e:
                     print(f"Failed to process {fname}: {e}")
+            
             print(f"Loaded {len(VISITOR_FEATURES)} visitors from test_images")
+            
+            # Build FAISS index from test_images if available
+            if faiss_index_manager and batch_data:
+                count = faiss_index_manager.add_visitors_batch(batch_data)
+                if count > 0:
+                    faiss_index_manager.save()
+                    print(f"✓ FAISS index built with {count} test_images visitors (fast ANN search enabled)")
 
 # --- PYDANTIC SCHEMAS ---
 class DetectionRequest(BaseModel):
@@ -419,63 +487,98 @@ async def recognize_visitor_api(
     best_match = None
     best_score = 0.0
 
-    # Database mode: Query and extract features on-the-fly
-    if USE_DATABASE and DB_AVAILABLE:
+    # Use FAISS ANN search if available, otherwise fall back to linear search
+    if faiss_index_manager and faiss_index_manager.index and faiss_index_manager.index.ntotal > 0:
+        # Fast ANN search using FAISS
         try:
-            visitors = database.get_visitor_images_from_db(
-                table_name=DB_TABLE_NAME,
-                visitor_id_column=DB_VISITOR_ID_COLUMN,
-                image_column=DB_IMAGE_COLUMN,
-                limit=DB_VISITOR_LIMIT,
-                active_only=DB_ACTIVE_ONLY
-            )
+            # Search for top 50 candidates using FAISS
+            ann_results = faiss_index_manager.search(query_feature, k=50)
             
-            for visitor_data in visitors:
-                visitor_id = str(visitor_data.get(DB_VISITOR_ID_COLUMN))
-                base64_image = visitor_data.get(DB_IMAGE_COLUMN)
+            for visitor_id, cosine_similarity, metadata in ann_results:
+                # cosine_similarity from FAISS is already in range [-1, 1]
+                # OpenCV's compare_face_features returns values in similar range
+                # Use cosine_similarity directly as match_score
+                score_float = float(cosine_similarity)
+                is_match = score_float >= threshold
                 
-                if not base64_image:
-                    continue
+                results.append({
+                    "visitor_id": visitor_id,
+                    "match_score": score_float,
+                    "is_match": bool(is_match),
+                    **metadata  # Include any additional metadata
+                })
                 
-                try:
-                    # Use image_loader to decode base64 image from database
-                    img_cv_db = image_loader.load_from_base64(base64_image)
-                    
-                    # Detect and extract features on-the-fly
-                    db_faces = inference.detect_faces(img_cv_db, return_landmarks=True)
-                    if db_faces is None or len(db_faces) == 0:
-                        continue
-                    
-                    db_feature = inference.extract_face_features(img_cv_db, db_faces[0])
-                    if db_feature is None:
-                        continue
-                    
-                    # Compare features
-                    score, is_match = inference.compare_face_features(query_feature, db_feature, threshold=threshold)
-                    score_float = float(score)
-                    
-                    results.append({
+                # Track best match
+                if is_match and score_float > best_score:
+                    best_score = score_float
+                    best_match = {
                         "visitor_id": visitor_id,
                         "match_score": score_float,
-                        "is_match": bool(is_match),
-                    })
+                        "is_match": True
+                    }
+        except Exception as e:
+            print(f"FAISS search error: {e}, falling back to linear search")
+            # Fall through to linear search
+    
+    # Fallback: Linear search (original implementation)
+    if len(results) == 0:
+        # Database mode: Query and extract features on-the-fly
+        if USE_DATABASE and DB_AVAILABLE:
+            try:
+                visitors = database.get_visitor_images_from_db(
+                    table_name=DB_TABLE_NAME,
+                    visitor_id_column=DB_VISITOR_ID_COLUMN,
+                    image_column=DB_IMAGE_COLUMN,
+                    limit=DB_VISITOR_LIMIT,
+                    active_only=DB_ACTIVE_ONLY
+                )
+                
+                for visitor_data in visitors:
+                    visitor_id = str(visitor_data.get(DB_VISITOR_ID_COLUMN))
+                    base64_image = visitor_data.get(DB_IMAGE_COLUMN)
                     
-                    # Track best match
-                    if is_match and score_float > best_score:
-                        best_score = score_float
-                        best_match = {
+                    if not base64_image:
+                        continue
+                    
+                    try:
+                        # Use image_loader to decode base64 image from database
+                        img_cv_db = image_loader.load_from_base64(base64_image)
+                        
+                        # Detect and extract features on-the-fly
+                        db_faces = inference.detect_faces(img_cv_db, return_landmarks=True)
+                        if db_faces is None or len(db_faces) == 0:
+                            continue
+                        
+                        db_feature = inference.extract_face_features(img_cv_db, db_faces[0])
+                        if db_feature is None:
+                            continue
+                        
+                        # Compare features
+                        score, is_match = inference.compare_face_features(query_feature, db_feature, threshold=threshold)
+                        score_float = float(score)
+                        
+                        results.append({
                             "visitor_id": visitor_id,
                             "match_score": score_float,
-                            "is_match": True
-                        }
+                            "is_match": bool(is_match),
+                        })
                         
-                except Exception as e:
-                    print(f"Error processing visitor {visitor_id}: {e}")
-                    continue
-                    
-        except Exception as e:
-            print(f"Database query error: {e}")
-            # Fall through to test_images fallback
+                        # Track best match
+                        if is_match and score_float > best_score:
+                            best_score = score_float
+                            best_match = {
+                                "visitor_id": visitor_id,
+                                "match_score": score_float,
+                                "is_match": True
+                            }
+                            
+                    except Exception as e:
+                        print(f"Error processing visitor {visitor_id}: {e}")
+                        continue
+                        
+            except Exception as e:
+                print(f"Database query error: {e}")
+                # Fall through to test_images fallback
     
     # Fallback: Use pre-loaded test_images features
     if not USE_DATABASE or not DB_AVAILABLE or len(results) == 0:
