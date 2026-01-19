@@ -48,6 +48,9 @@ except ImportError:
 
 import inference  # This should be your inference.py containing detection/recognition
 
+# Image loading utilities (centralized)
+import image_loader
+
 # Database integration (optional - falls back to test_images if not configured)
 try:
     import database
@@ -153,12 +156,8 @@ def load_models():
                     continue
                 fpath = os.path.join(VISITOR_IMAGES_DIR, fname)
                 try:
-                    # Read via PIL and CV2
-                    img = Image.open(fpath)
-                    if img.mode != "RGB":
-                        img = img.convert("RGB")
-                    img_np = np.array(img)
-                    img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                    # Use image_loader to load image from file path
+                    img_cv = image_loader.load_from_path(fpath)
 
                     # Detect face(s)
                     faces = inference.detect_faces(img_cv, return_landmarks=True)
@@ -238,39 +237,8 @@ class VisitorRecognitionResponse(BaseModel):
     matches: Optional[list] = None  # Additional match details (optional)
 
 # --- IMAGE PROCESSING UTILITIES ---
-def decode_base64_image(img_b64: str) -> np.ndarray:
-    try:
-        img_bytes = base64.b64decode(img_b64)
-        img = Image.open(io.BytesIO(img_bytes))
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-        img_np = np.array(img)
-        # Pillow returns HWC, convert to opencv BGR
-        return cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-    except Exception:
-        raise ValueError("Invalid base64 image.")
-
-def uploadfile_to_np(upload_file: UploadFile) -> np.ndarray:
-    try:
-        contents = upload_file.file.read()
-        img = Image.open(io.BytesIO(contents))
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-        img_np = np.array(img)
-        return cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-    except Exception:
-        raise ValueError("Invalid uploaded image file.")
-
-def validate_image_format(img: Image.Image):
-    fmt = (img.format or "").lower()
-    if fmt not in ALLOWED_FORMATS:
-        raise ValueError(f"Image format '{fmt}' not allowed. Allowed: {ALLOWED_FORMATS}")
-
-def validate_image_size(size: Tuple[int, int]):
-    max_w, max_h = MAX_IMAGE_SIZE
-    w, h = size
-    if w > max_w or h > max_h:
-        raise ValueError(f"Image dimensions too large: {w}x{h}, max is {MAX_IMAGE_SIZE}")
+# Use centralized image_loader module instead of duplicate functions
+# All image loading now goes through image_loader for consistency
 
 # --- ERROR HANDLING ---
 @app.exception_handler(ValueError)
@@ -311,14 +279,9 @@ class CompareRequest(BaseModel):
 async def detect_faces_api_v1(request: DetectRequest):
     """Detect faces endpoint that accepts JSON with base64 image"""
     try:
-        # Handle data URL format (data:image/jpeg;base64,...) or plain base64
-        image_b64 = request.image
-        if image_b64.startswith('data:'):
-            # Extract base64 part after comma
-            image_b64 = image_b64.split(',', 1)[1] if ',' in image_b64 else image_b64
-        
-        img_np = decode_base64_image(image_b64)
-        validate_image_size((img_np.shape[1], img_np.shape[0]))
+        # Use image_loader to handle base64 (including data URL format)
+        img_np = image_loader.load_image(request.image, source_type="base64")
+        image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
         results = inference.detect_faces(
             img_np, score_threshold=request.score_threshold, return_landmarks=request.return_landmarks
         )
@@ -349,13 +312,13 @@ async def detect_faces_api(
 ):
     if image is None and not image_base64:
         raise HTTPException(status_code=400, detail="An image (file or base64) must be provided.")
-    # Load image
+    # Load image using unified image_loader
     if image is not None:
-        img_np = uploadfile_to_np(image)
+        img_np = image_loader.load_from_upload(image)
     else:
-        img_np = decode_base64_image(image_base64)
+        img_np = image_loader.load_image(image_base64, source_type="base64")
     # Validate image size
-    validate_image_size((img_np.shape[1], img_np.shape[0]))
+    image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
     results = inference.detect_faces(
         img_np, score_threshold=score_threshold, return_landmarks=return_landmarks
     )
@@ -381,12 +344,13 @@ async def extract_features_api(
 ):
     if image is None and not image_base64:
         raise HTTPException(status_code=400, detail="An image (file or base64) must be provided.")
+    # Load image using unified image_loader
     if image is not None:
-        img_np = uploadfile_to_np(image)
+        img_np = image_loader.load_from_upload(image)
     else:
-        img_np = decode_base64_image(image_base64)
+        img_np = image_loader.load_image(image_base64, source_type="base64")
     # Validate image size
-    validate_image_size((img_np.shape[1], img_np.shape[0]))
+    image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
     
     # Detect faces first
     faces = inference.detect_faces(img_np, return_landmarks=True)
@@ -409,20 +373,12 @@ async def extract_features_api(
 async def compare_faces_api_v1(request: CompareRequest):
     """Compare faces endpoint that accepts JSON with base64 images"""
     try:
-        # Handle data URL format
-        image1_b64 = request.image1
-        if image1_b64.startswith('data:'):
-            image1_b64 = image1_b64.split(',', 1)[1] if ',' in image1_b64 else image1_b64
+        # Use image_loader to handle base64 (including data URL format)
+        img1 = image_loader.load_image(request.image1, source_type="base64")
+        img2 = image_loader.load_image(request.image2, source_type="base64")
         
-        image2_b64 = request.image2
-        if image2_b64.startswith('data:'):
-            image2_b64 = image2_b64.split(',', 1)[1] if ',' in image2_b64 else image2_b64
-        
-        img1 = decode_base64_image(image1_b64)
-        img2 = decode_base64_image(image2_b64)
-        
-        validate_image_size((img1.shape[1], img1.shape[0]))
-        validate_image_size((img2.shape[1], img2.shape[0]))
+        image_loader.validate_image_size((img1.shape[1], img1.shape[0]), MAX_IMAGE_SIZE)
+        image_loader.validate_image_size((img2.shape[1], img2.shape[0]), MAX_IMAGE_SIZE)
         
         # Detect faces in both images
         faces1 = inference.detect_faces(img1, return_landmarks=True)
@@ -468,14 +424,14 @@ async def recognize_visitor_api(
     if image is None and not image_base64:
         raise HTTPException(status_code=400, detail="An image (file or base64) must be provided.")
     
-    # Load received image
+    # Load received image using unified image_loader
     if image is not None:
-        img_np = uploadfile_to_np(image)
+        img_np = image_loader.load_from_upload(image)
     else:
-        img_np = decode_base64_image(image_base64)
+        img_np = image_loader.load_image(image_base64, source_type="base64")
     
     # Validate image size
-    validate_image_size((img_np.shape[1], img_np.shape[0]))
+    image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
 
     # Detect faces in input
     faces = inference.detect_faces(img_np, return_landmarks=True)
@@ -516,13 +472,8 @@ async def recognize_visitor_api(
                     continue
                 
                 try:
-                    # Decode base64 image
-                    img_bytes = base64.b64decode(base64_image)
-                    img = Image.open(io.BytesIO(img_bytes))
-                    if img.mode != "RGB":
-                        img = img.convert("RGB")
-                    img_np_db = np.array(img)
-                    img_cv_db = cv2.cvtColor(img_np_db, cv2.COLOR_RGB2BGR)
+                    # Use image_loader to decode base64 image from database
+                    img_cv_db = image_loader.load_from_base64(base64_image)
                     
                     # Detect and extract features on-the-fly
                     db_faces = inference.detect_faces(img_cv_db, return_landmarks=True)
@@ -616,8 +567,8 @@ async def batch_detect_api(
     responses = []
     for imgfile in images:
         try:
-            img_np = uploadfile_to_np(imgfile)
-            validate_image_size((img_np.shape[1], img_np.shape[0]))
+            img_np = image_loader.load_from_upload(imgfile)
+            image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
             results = inference.detect_faces(
                 img_np, score_threshold=score_threshold, return_landmarks=False
             )
@@ -668,12 +619,18 @@ async def validate_image_api(image: UploadFile = File(None), image_base64: str =
     if image is None and not image_base64:
         raise HTTPException(status_code=400, detail="An image (file or base64) must be provided.")
     try:
+        # Load image using image_loader
         if image is not None:
-            contents = image.file.read()
-            img = Image.open(io.BytesIO(contents))
+            img_np = image_loader.load_from_upload(image)
+            # Get format from original file if available
+            img = Image.open(io.BytesIO(image.file.read()))
+            image.file.seek(0)  # Reset file pointer
         else:
-            img_bytes = base64.b64decode(image_base64)
+            img_np = image_loader.load_image(image_base64, source_type="base64")
+            # Decode to get format info
+            img_bytes = base64.b64decode(image_base64.split(',', 1)[1] if image_base64.startswith('data:') else image_base64)
             img = Image.open(io.BytesIO(img_bytes))
+        
         fmt = (img.format or "").lower()
         size = img.size
         valid = (fmt in ALLOWED_FORMATS) and (size[0] <= MAX_IMAGE_SIZE[0] and size[1] <= MAX_IMAGE_SIZE[1])
@@ -722,8 +679,8 @@ async def websocket_face_endpoint(websocket: WebSocket):
                 continue
 
             try:
-                img_np = decode_base64_image(image_b64)
-                validate_image_size((img_np.shape[1], img_np.shape[0]))
+                img_np = image_loader.load_image(image_b64, source_type="base64")
+                image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
                 dets = inference.detect_faces(img_np, score_threshold=score_threshold, return_landmarks=return_landmarks)
                 faces_list = []
                 if dets:
