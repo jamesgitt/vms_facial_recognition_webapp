@@ -88,7 +88,7 @@ export function FaceRecognitionCamera() {
     try {
       const response = await fetch(`${apiUrl}/api/v1/hnsw/status`);
       if (response.ok) {
-        const data: HNSWStatus = await response.json();
+        const data = (await response.json()) as HNSWStatus;
         setHnswStatus(data);
       } else {
         setHnswStatus({
@@ -119,7 +119,7 @@ export function FaceRecognitionCamera() {
 
   // Check HNSW status on mount and when API URL changes
   useEffect(() => {
-    checkHNSWStatus();
+    void checkHNSWStatus();
   }, [checkHNSWStatus]);
 
   // Start camera
@@ -830,7 +830,9 @@ export function FaceRecognitionCamera() {
                 )}
                 {"error" in (hnswStatus.details ?? {}) && (
                   <div className="mt-2 rounded bg-red-100 p-2 text-xs text-red-800">
-                    <strong>Error:</strong> {String(hnswStatus.details?.error ?? "")}
+                    <strong>Error:</strong> {typeof hnswStatus.details?.error === "string" 
+                      ? hnswStatus.details.error 
+                      : JSON.stringify(hnswStatus.details?.error ?? "")}
                   </div>
                 )}
               </div>
