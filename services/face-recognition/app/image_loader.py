@@ -34,6 +34,9 @@ try:
 except ImportError:
     DB_AVAILABLE = False
 
+# Configuration constants
+ALLOWED_FORMATS = {"jpg", "jpeg", "png", "webp", "bmp"}
+
 # 1. CORE IMAGE LOADING FUNCTIONS
 #    [ ] load_from_upload(upload_file: UploadFile) -> np.ndarray
 #        - Convert FastAPI UploadFile to OpenCV BGR numpy array
@@ -252,7 +255,12 @@ def load_image(source: Union[UploadFile, str], source_type: Optional[str] = None
 #    [ ] validate_image_format(img: Image.Image) -> bool
 #        - Check if format is in ALLOWED_FORMATS
 #        - Raise ValueError with allowed formats list
-#    
+def validate_image_format(img: Image.Image) -> bool:
+    fmt = (img.format or "").lower()
+    if fmt not in ALLOWED_FORMATS:
+        raise ValueError(f"Image format '{fmt}' not allowed. Allowed: {ALLOWED_FORMATS}")
+    return True
+        
 #    [ ] validate_image_size(size: Tuple[int, int], max_size: Tuple[int, int]) -> bool
 #        - Check dimensions against MAX_IMAGE_SIZE
 #        - Raise ValueError if too large
