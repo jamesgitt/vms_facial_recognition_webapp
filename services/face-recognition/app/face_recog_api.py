@@ -303,40 +303,6 @@ async def detect_faces_api_v1(request: DetectRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
 
-@app.post("/detect", response_model=DetectionResponse, tags=["Detection"])
-async def detect_faces_api(
-    image: UploadFile = File(None),
-    image_base64: str = Form(None),
-    score_threshold: float = Form(DEFAULT_SCORE_THRESHOLD),
-    return_landmarks: bool = Form(False),
-):
-    if image is None and not image_base64:
-        raise HTTPException(status_code=400, detail="An image (file or base64) must be provided.")
-    # Load image using unified image_loader
-    if image is not None:
-        img_np = image_loader.load_from_upload(image)
-    else:
-        img_np = image_loader.load_image(image_base64, source_type="base64")
-    # Validate image size
-    image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
-    results = inference.detect_faces(
-        img_np, score_threshold=score_threshold, return_landmarks=return_landmarks
-    )
-    
-    if results is None:
-        return DetectionResponse(faces=[], count=0)
-    
-    faces_list = []
-    for r in results:
-        if return_landmarks:
-            faces_list.append(r.tolist() if hasattr(r, 'tolist') else list(r))
-        else:
-            faces_list.append([float(r[0]), float(r[1]), float(r[2]), float(r[3])])
-    return DetectionResponse(
-        faces=faces_list,
-        count=len(faces_list)
-    )
-
 @app.post("/api/v1/extract-features", response_model=FeatureExtractionResponse, tags=["Features"])
 async def extract_features_api(
     image: UploadFile = File(None),
