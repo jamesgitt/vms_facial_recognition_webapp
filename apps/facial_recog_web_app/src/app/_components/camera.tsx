@@ -61,10 +61,66 @@ export function FaceRecognitionCamera() {
   const [recognitionTriggered, setRecognitionTriggered] = useState(false);
   const [recognitionStartTime, setRecognitionStartTime] = useState<number | null>(null);
   const RECOGNITION_DELAY = 5000; // 5 seconds in milliseconds
+
+  // HNSW status check
+  interface HNSWStatus {
+    available: boolean;
+    initialized: boolean;
+    total_vectors: number;
+    dimension: number;
+    index_type: string;
+    m?: number;
+    ef_construction?: number;
+    ef_search?: number;
+    visitors_indexed: number;
+    details?: Record<string, unknown>;
+  }
+  const [hnswStatus, setHnswStatus] = useState<HNSWStatus | null>(null);
+  const [hnswStatusLoading, setHnswStatusLoading] = useState(false);
   
   const frameCountRef = useRef(0);
   const lastTimeRef = useRef(Date.now());
   const animationFrameRef = useRef<number | undefined>(undefined);
+
+  // Check HNSW status
+  const checkHNSWStatus = useCallback(async () => {
+    setHnswStatusLoading(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/hnsw/status`);
+      if (response.ok) {
+        const data: HNSWStatus = await response.json();
+        setHnswStatus(data);
+      } else {
+        setHnswStatus({
+          available: false,
+          initialized: false,
+          total_vectors: 0,
+          dimension: 512,
+          index_type: "HNSW",
+          visitors_indexed: 0,
+          details: { error: `HTTP ${response.status}` }
+        });
+      }
+    } catch (error) {
+      console.error("Error checking HNSW status:", error);
+      setHnswStatus({
+        available: false,
+        initialized: false,
+        total_vectors: 0,
+        dimension: 512,
+        index_type: "HNSW",
+        visitors_indexed: 0,
+        details: { error: String(error) }
+      });
+    } finally {
+      setHnswStatusLoading(false);
+    }
+  }, [apiUrl]);
+
+  // Check HNSW status on mount and when API URL changes
+  useEffect(() => {
+    checkHNSWStatus();
+  }, [checkHNSWStatus]);
 
   // Start camera
   const startCamera = useCallback(async () => {
@@ -720,6 +776,67 @@ export function FaceRecognitionCamera() {
               onChange={(e) => setApiUrl(e.target.value)}
               className="w-full rounded border border-gray-300 px-4 py-2"
             />
+          </div>
+
+          {/* HNSW Status Check */}
+          <div className="mb-4 rounded-lg border-2 border-purple-300 bg-purple-50 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <h4 className="font-semibold text-purple-800">HNSW Index Status</h4>
+              <button
+                onClick={checkHNSWStatus}
+                disabled={hnswStatusLoading}
+                className="rounded bg-purple-600 px-3 py-1 text-sm text-white transition hover:bg-purple-700 disabled:bg-gray-400"
+              >
+                {hnswStatusLoading ? "Checking..." : "🔄 Refresh"}
+              </button>
+            </div>
+            {hnswStatus ? (
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">Status:</span>
+                  {hnswStatus.available && hnswStatus.initialized ? (
+                    <span className="rounded bg-green-100 px-2 py-1 text-green-800">
+                      ✓ Active ({hnswStatus.total_vectors} vectors)
+                    </span>
+                  ) : hnswStatus.available ? (
+                    <span className="rounded bg-yellow-100 px-2 py-1 text-yellow-800">
+                      ⚠ Available but not initialized
+                    </span>
+                  ) : (
+                    <span className="rounded bg-red-100 px-2 py-1 text-red-800">
+                      ✗ Not Available
+                    </span>
+                  )}
+                </div>
+                {hnswStatus.initialized && (
+                  <>
+                    <div>
+                      <span className="font-semibold">Visitors Indexed:</span>{" "}
+                      <span className="text-purple-600">{hnswStatus.visitors_indexed}</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold">Total Vectors:</span>{" "}
+                      <span className="text-purple-600">{hnswStatus.total_vectors}</span>
+                    </div>
+                    {hnswStatus.m && (
+                      <div>
+                        <span className="font-semibold">HNSW Parameters:</span>{" "}
+                        <span className="text-purple-600">
+                          M={hnswStatus.m}, ef_construction={hnswStatus.ef_construction}, ef_search={hnswStatus.ef_search}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+                {"error" in (hnswStatus.details ?? {}) && (
+                  <div className="mt-2 rounded bg-red-100 p-2 text-xs text-red-800">
+                    <strong>Error:</strong> {String(hnswStatus.details?.error ?? "")}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-gray-600">Loading status...</div>
+            )}
           </div>
 
           {/* Comparison Mode Settings */}

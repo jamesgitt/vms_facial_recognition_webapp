@@ -290,6 +290,18 @@ class ModelInfoResponse(BaseModel):
     detector: Any
     recognizer: Any
 
+class HNSWStatusResponse(BaseModel):
+    available: bool
+    initialized: bool
+    total_vectors: int
+    dimension: int
+    index_type: str
+    m: Optional[int] = None
+    ef_construction: Optional[int] = None
+    ef_search: Optional[int] = None
+    visitors_indexed: int
+    details: Optional[Any] = None
+
 class ValidateImageRequest(BaseModel):
     image_base64: Optional[str] = None
 
@@ -685,6 +697,61 @@ async def model_info():
         }
     }
     return ModelInfoResponse(detector=info.get("detector"), recognizer=info.get("recognizer"))
+
+@app.get("/api/v1/hnsw/status", response_model=HNSWStatusResponse, tags=["HNSW"])
+async def hnsw_status():
+    """
+    Get HNSW index status and statistics.
+    Returns information about whether HNSW is available, initialized, and its current state.
+    """
+    global hnsw_index_manager
+    
+    if not HNSW_AVAILABLE:
+        return HNSWStatusResponse(
+            available=False,
+            initialized=False,
+            total_vectors=0,
+            dimension=512,
+            index_type="HNSW",
+            visitors_indexed=0,
+            details={"error": "HNSW library not available. Install with: pip install hnswlib"}
+        )
+    
+    if hnsw_index_manager is None:
+        return HNSWStatusResponse(
+            available=True,
+            initialized=False,
+            total_vectors=0,
+            dimension=512,
+            index_type="HNSW",
+            visitors_indexed=0,
+            details={"error": "HNSW index manager not initialized"}
+        )
+    
+    try:
+        stats = hnsw_index_manager.get_stats()
+        return HNSWStatusResponse(
+            available=True,
+            initialized=True,
+            total_vectors=stats.get('total_vectors', 0),
+            dimension=stats.get('dimension', 512),
+            index_type=stats.get('index_type', 'HNSW'),
+            m=stats.get('m'),
+            ef_construction=stats.get('ef_construction'),
+            ef_search=stats.get('ef_search'),
+            visitors_indexed=stats.get('visitors_indexed', 0),
+            details=stats
+        )
+    except Exception as e:
+        return HNSWStatusResponse(
+            available=True,
+            initialized=False,
+            total_vectors=0,
+            dimension=512,
+            index_type="HNSW",
+            visitors_indexed=0,
+            details={"error": str(e)}
+        )
 
 @app.post("/validate-image", response_model=ValidateImageResponse, tags=["Utility"])
 async def validate_image_api(image: UploadFile = File(None), image_base64: str = Form(None)):
