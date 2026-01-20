@@ -200,7 +200,13 @@ class HNSWIndexManager:
         metadata_list = []
         
         for visitor_id, feature, metadata in visitors:
-            if feature is None or feature.shape[0] != self.dimension:
+            if feature is None:
+                continue
+            
+            # Ensure feature is 1D array with correct dimension
+            feature = np.asarray(feature).flatten()
+            if feature.shape[0] != self.dimension:
+                print(f"⚠ Skipping visitor {visitor_id}: feature dimension {feature.shape[0]} != {self.dimension}")
                 continue
             
             # Skip if already exists
@@ -221,7 +227,12 @@ class HNSWIndexManager:
             self.next_index += 1
         
         if not features_list:
-            print("⚠ No valid features to add to HNSW index")
+            print(f"⚠ No valid features to add to HNSW index (processed {len(visitors)} visitors)")
+            if visitors:
+                # Debug: show first visitor's feature shape
+                first_id, first_feature, _ = visitors[0]
+                if first_feature is not None:
+                    print(f"  Debug: First visitor '{first_id}' feature shape: {np.asarray(first_feature).shape}, expected: ({self.dimension},)")
             return 0
         
         try:

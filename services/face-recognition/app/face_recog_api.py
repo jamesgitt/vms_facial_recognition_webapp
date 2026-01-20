@@ -30,17 +30,15 @@ from pydantic import BaseModel, Field
 
 from PIL import Image
 
-# Load environment variables from .env file if it exists
+# Load environment variables from .env.test file if it exists
 try:
     from dotenv import load_dotenv
-    # Try to load .env from parent directory (services/face-recognition/.env)
     _SCRIPT_DIR = Path(__file__).parent
-    env_file = _SCRIPT_DIR.parent / ".env"
+    env_file = _SCRIPT_DIR.parent / ".env.test"
     if env_file.exists():
         load_dotenv(env_file)
     else:
-        # Also try current directory
-        load_dotenv(_SCRIPT_DIR / ".env")
+        load_dotenv(_SCRIPT_DIR / ".env.test")
 except ImportError:
     # python-dotenv not installed, skip .env loading
     pass
@@ -133,22 +131,38 @@ def load_models():
     else:
         hnsw_index_manager = None
 
-    # Initialize database connection if enabled
+    # Initialize database connection - auto-detect if available
     global USE_DATABASE
-    if USE_DATABASE and DB_AVAILABLE:
+    if DB_AVAILABLE:
+        # Try to connect to database even if USE_DATABASE is not explicitly set
+        # This allows automatic detection of Docker database when running locally
         try:
+            print("Attempting to connect to database...")
             if database.test_connection():
-                print("✓ Database connection successful")
+                print("✓ Database connection successful - enabling database mode")
+                USE_DATABASE = True
                 # Initialize connection pool for better performance
                 database.init_connection_pool(min_conn=1, max_conn=5)
             else:
-                print("⚠ Database connection failed, falling back to test_images")
-                print("Falling back to test_images because the database connection could not be established (check DB host, credentials, or server status).")
+                if USE_DATABASE:
+                    # USE_DATABASE was explicitly set to true but connection failed
+                    print("⚠ Database connection failed, falling back to test_images")
+                    print("Falling back to test_images because the database connection could not be established (check DB host, credentials, or server status).")
+                else:
+                    # Database not explicitly enabled, silently fall back
+                    print("ℹ Database not available or not configured - using test_images")
                 USE_DATABASE = False
         except Exception as e:
-            print(f"⚠ Database initialization error: {e}, falling back to test_images")
-            print("Falling back to test_images because the database module was found but could not initialize a working connection. Likely a connection issue, bad pool config, or missing DB server dependency.")
+            if USE_DATABASE:
+                print(f"⚠ Database initialization error: {e}, falling back to test_images")
+                print("Falling back to test_images because the database module was found but could not initialize a working connection. Likely a connection issue, bad pool config, or missing DB server dependency.")
+            else:
+                print(f"ℹ Database not available ({type(e).__name__}) - using test_images")
             USE_DATABASE = False
+    elif USE_DATABASE:
+        # USE_DATABASE was set but database module is not available
+        print("⚠ Database module not available (psycopg2 not installed) - falling back to test_images")
+        USE_DATABASE = False
 
     # Load visitor images from database or test_images (fallback)
     VISITOR_FEATURES.clear()
