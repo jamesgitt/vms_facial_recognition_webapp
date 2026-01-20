@@ -6,7 +6,7 @@ Implements endpoints for:
 - POST /api/v1/detect           : Detect faces in an image.
 - POST /api/v1/extract-features : Extract face features/vectors for detected faces.
 - POST /api/v1/compare          : Compare faces between two images.
-- POST /api/v1/recognize : Recognize visitor (PostgreSQL database or test_images fallback)
+- POST /api/v1/recognize : Recognize visitor (PostgreSQL database is used if properly set up, otherwise falls back to test_images. If the database connection fails, the database module is missing, or data loading from DB fails, the service loads visitors from the test_images directory instead and uses it for recognition. This ensures face recognition can still work for testing/demo.)
 - GET  /api/v1/health           : Health check.
 - GET  /api/v1/models/status    : Model loading status.
 - GET  /api/v1/models/info      : Model metadata.
@@ -143,9 +143,11 @@ def load_models():
                 database.init_connection_pool(min_conn=1, max_conn=5)
             else:
                 print("⚠ Database connection failed, falling back to test_images")
+                print("Falling back to test_images because the database connection could not be established (check DB host, credentials, or server status).")
                 USE_DATABASE = False
         except Exception as e:
             print(f"⚠ Database initialization error: {e}, falling back to test_images")
+            print("Falling back to test_images because the database module was found but could not initialize a working connection. Likely a connection issue, bad pool config, or missing DB server dependency.")
             USE_DATABASE = False
 
     # Load visitor images from database or test_images (fallback)
@@ -198,10 +200,16 @@ def load_models():
                     print("⚠ HNSW index build failed, falling back to linear search")
         except Exception as e:
             print(f"⚠ Error loading visitors from database: {e}, falling back to test_images")
+            print("Falling back to test_images because an error occurred loading visitor images from the database (could be a bad query, missing table/column, or unexpected DB exception).")
             USE_DATABASE = False
     
     # Fallback to test_images if database not available or failed
     if not USE_DATABASE or not DB_AVAILABLE:
+        # Print fallback reason
+        if not DB_AVAILABLE:
+            print("Falling back to test_images because the database module is not available (maybe not installed or import failed).")
+        else:
+            print("Falling back to test_images because database mode is not enabled or previous database step failed.")
         if os.path.isdir(VISITOR_IMAGES_DIR):
             print(f"Loading gallery visitors from {VISITOR_IMAGES_DIR}")
             batch_data = []
@@ -468,6 +476,13 @@ async def recognize_visitor_api(
     Recognize visitor by matching the input image against database visitors.
     Returns visitor_id, confidence, and matched status.
     Falls back to test_images if database is not configured.
+
+    Note:
+    Falls back to the test_images directory if:
+    - The database connection cannot be established (connection refused, bad credentials, no DB server running),
+    - The database module is not available (e.g. not installed in the environment or ImportError),
+    - A database query or loading error occurs,
+    - Database integration is not enabled/configured.
     """
     if image is None and not image_base64:
         raise HTTPException(status_code=400, detail="An image (file or base64) must be provided.")
@@ -592,10 +607,12 @@ async def recognize_visitor_api(
                         
             except Exception as e:
                 print(f"Database query error: {e}")
+                print("Falling back to test_images because error occurred during database query or feature extraction step.")
                 # Fall through to test_images fallback
     
     # Fallback: Use pre-loaded test_images features
     if not USE_DATABASE or not DB_AVAILABLE or len(results) == 0:
+        print("Using test_images fallback for face recognition because either database is not enabled, database module is missing, or all recognition/database attempts failed.")
         for visitor_name, visitor in VISITOR_FEATURES.items():
             db_feature = visitor.get("feature")
             score, is_match = inference.compare_face_features(query_feature, db_feature, threshold=threshold)

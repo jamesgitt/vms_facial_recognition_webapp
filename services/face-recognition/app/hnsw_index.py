@@ -332,8 +332,15 @@ class HNSWIndexManager:
         self.metadata = {}
         self.visitor_id_to_index = {}
         self.next_index = 0
+
+        # Try to get visitors from database
+        try:
+            visitors = get_visitors_func()
+        except Exception as e:
+            print("⚠ Falling back to using test_images instead of database because getting visitors from the database failed.")
+            print(f"Reason: {e}")
+            visitors = []
         
-        visitors = get_visitors_func()
         batch_data = []
         features_extracted = 0
         features_failed = 0
