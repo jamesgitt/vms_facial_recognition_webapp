@@ -22,7 +22,6 @@ Environment Variables:
 
 import os
 import sys
-import base64
 import numpy as np
 from pathlib import Path
 from typing import Optional
@@ -35,11 +34,19 @@ sys.path.insert(0, str(Path(__file__).parent))
 try:
     from dotenv import load_dotenv
     _SCRIPT_DIR = Path(__file__).parent
-    env_file = _SCRIPT_DIR.parent.parent.parent / ".env"
+    # Check services/face-recognition/.env.test first (where this script lives)
+    env_file = _SCRIPT_DIR.parent / ".env.test"
     if env_file.exists():
+        print(f"Loading environment from: {env_file}")
         load_dotenv(env_file)
     else:
-        load_dotenv(_SCRIPT_DIR.parent / ".env")
+        # Fallback to project root
+        env_file = _SCRIPT_DIR.parent.parent.parent / ".env.test"
+        if env_file.exists():
+            print(f"Loading environment from: {env_file}")
+            load_dotenv(env_file)
+        else:
+            print("Warning: No .env.test file found")
 except ImportError:
     pass
 
@@ -60,7 +67,7 @@ DB_IMAGE_COLUMN = os.environ.get("DB_IMAGE_COLUMN", "base64Image")
 DB_FEATURES_COLUMN = os.environ.get("DB_FEATURES_COLUMN", "faceFeatures")
 DB_VISITOR_ID_COLUMN = os.environ.get("DB_VISITOR_ID_COLUMN", "id")
 MODELS_PATH = os.environ.get("MODELS_PATH", "models")
-BATCH_SIZE = int(os.environ.get("EXTRACT_BATCH_SIZE", "100"))  # Process in batches
+BATCH_SIZE = int(os.environ.get("EXTRACT_BATCH_SIZE", "1000"))  # Process in batches
 SKIP_EXISTING = os.environ.get("SKIP_EXISTING_FEATURES", "true").lower() == "true"  # Skip if features already exist
 
 
@@ -91,7 +98,7 @@ def extract_feature_from_image(base64_image: str) -> Optional[np.ndarray]:
         # Validate dimension
         feature = np.asarray(feature).flatten().astype(np.float32)
         if feature.shape[0] != 128:
-            print(f"⚠ Warning: Feature dimension is {feature.shape[0]}, expected 128")
+            print(f"[WARNING] Feature dimension is {feature.shape[0]}, expected 128")
             return None
         
         return feature
@@ -179,27 +186,27 @@ def main():
     
     # Check database availability
     if not USE_DATABASE:
-        print("❌ ERROR: USE_DATABASE is not set to 'true'")
+        print("[ERROR] USE_DATABASE is not set to 'true'")
         print("   Set USE_DATABASE=true in your .env file")
         sys.exit(1)
     
     # Check if database module is available
     try:
         if not hasattr(database, 'test_connection'):
-            print("❌ ERROR: Database module not properly loaded")
+            print("[ERROR] Database module not properly loaded")
             sys.exit(1)
     except AttributeError:
-        print("❌ ERROR: Database module not available")
+        print("[ERROR] Database module not available")
         print("   Install psycopg2: pip install psycopg2-binary")
         sys.exit(1)
     
     # Test database connection
     print("Testing database connection...")
     if not database.test_connection():
-        print("❌ ERROR: Database connection failed")
+        print("[ERROR] Database connection failed")
         print("   Check your DATABASE_URL and database credentials")
         sys.exit(1)
-    print("✓ Database connection successful")
+    print("[OK] Database connection successful")
     print()
     
     # Load models
@@ -207,9 +214,9 @@ def main():
     try:
         detector = inference.get_face_detector(MODELS_PATH)
         recognizer = inference.get_face_recognizer(MODELS_PATH)
-        print("✓ Models loaded successfully")
+        print("[OK] Models loaded successfully")
     except Exception as e:
-        print(f"❌ ERROR: Failed to load models: {e}")
+        print(f"[ERROR] Failed to load models: {e}")
         print(f"   Make sure models are in: {MODELS_PATH}")
         sys.exit(1)
     print()
@@ -219,7 +226,7 @@ def main():
     visitors = get_visitors_needing_features(skip_existing=SKIP_EXISTING)
     
     if not visitors:
-        print("✓ No visitors need feature extraction")
+        print("[OK] No visitors need feature extraction")
         if SKIP_EXISTING:
             print("   All visitors already have features stored")
         else:
@@ -263,7 +270,7 @@ def main():
                 elapsed = time.time() - start_time
                 rate = i / elapsed if elapsed > 0 else 0
                 remaining = (total_visitors - i) / rate if rate > 0 else 0
-                print(f"[{i}/{total_visitors}] ✓ Extracted and saved feature for visitor {visitor_id} "
+                print(f"[{i}/{total_visitors}] [OK] Extracted and saved feature for visitor {visitor_id} "
                       f"(Success: {successful}, Failed: {failed}, Rate: {rate:.1f}/s, ETA: {remaining:.0f}s)")
         else:
             failed += 1
@@ -285,9 +292,9 @@ def main():
     print()
     
     if successful > 0:
-        print(f"✓ Successfully extracted and stored features for {successful} visitors")
+        print(f"[OK] Successfully extracted and stored features for {successful} visitors")
     if failed > 0:
-        print(f"⚠ Failed to extract features for {failed} visitors")
+        print(f"[WARNING] Failed to extract features for {failed} visitors")
         print("   Check logs above for error details")
 
 
@@ -295,10 +302,10 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n⚠ Extraction interrupted by user")
+        print("\n\n[WARNING] Extraction interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n\n❌ Fatal error: {e}")
+        print(f"\n\n[ERROR] Fatal error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
