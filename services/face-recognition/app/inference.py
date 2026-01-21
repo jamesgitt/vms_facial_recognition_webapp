@@ -24,7 +24,26 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Check for MODELS_PATH environment variable first (for Docker), then use default
 # In Docker: MODELS_PATH is set to /app/app/models
 # Locally: defaults to models/ in the face-recognition directory (parent of app/)
-MODELS_DIR = os.environ.get("MODELS_PATH", os.path.join(os.path.dirname(_SCRIPT_DIR), 'models'))
+# Also check if models exist in app/models (for local development)
+env_models_path = os.environ.get("MODELS_PATH")
+if env_models_path:
+    MODELS_DIR = env_models_path
+else:
+    # Try multiple possible locations
+    possible_paths = [
+        os.path.join(_SCRIPT_DIR, 'models'),  # app/models (local dev)
+        os.path.join(os.path.dirname(_SCRIPT_DIR), 'models'),  # face-recognition/models (Docker)
+        os.path.join(os.path.dirname(os.path.dirname(_SCRIPT_DIR)), 'models'),  # services/face-recognition/models
+    ]
+    MODELS_DIR = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            MODELS_DIR = path
+            break
+    if MODELS_DIR is None:
+        # Default to app/models if nothing found
+        MODELS_DIR = os.path.join(_SCRIPT_DIR, 'models')
+
 DEFAULT_MODELS_DIR = MODELS_DIR
 
 YUNET_FILENAME = 'face_detection_yunet_2023mar.onnx'

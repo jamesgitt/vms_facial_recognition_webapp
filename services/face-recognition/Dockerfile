@@ -21,8 +21,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/
-# Copy models to app directory so inference.py can find them
-COPY models/ ./app/models/
+
+# Create models directory (will be populated by volume mount in docker-compose.yml)
+# Models are mounted from ./services/face-recognition/models:/app/app/models:ro
+RUN mkdir -p ./app/models
+
+# Note: Models are provided via volume mount in docker-compose.yml
+# If you need to include models in the image, uncomment the line below:
+# COPY models/ ./app/models/
 
 # Set working directory to app folder
 WORKDIR /app/app
