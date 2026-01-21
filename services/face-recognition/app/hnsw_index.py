@@ -224,11 +224,15 @@ class HNSWIndexManager:
             features_list.append(feature_norm.astype('float32'))
             indices_list.append(self.next_index)
             
-            metadata_list.append({
+            # Extract firstName and lastName from metadata if available
+            metadata_dict = {
                 'visitor_id': visitor_id,
                 'index': self.next_index,
+                'firstName': metadata.get('firstName') if metadata else None,
+                'lastName': metadata.get('lastName') if metadata else None,
                 **(metadata or {})
-            })
+            }
+            metadata_list.append(metadata_dict)
             self.visitor_id_to_index[visitor_id] = self.next_index
             self.next_index += 1
         

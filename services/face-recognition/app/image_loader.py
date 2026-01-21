@@ -148,7 +148,7 @@ def get_cached_image(key: str) -> Optional[np.ndarray]:
     return _image_cache.get(key)
 
 # 7. DATABASE INTEGRATION
-def load_from_database(visitor_id: str, table_name: str = "visitors", 
+def load_from_database(visitor_id: str, table_name: str = 'public."Visitor"', 
                       image_column: str = "base64Image") -> np.ndarray:
     """
     Load image from database by visitor_id.

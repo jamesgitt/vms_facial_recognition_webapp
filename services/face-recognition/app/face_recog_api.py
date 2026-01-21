@@ -77,7 +77,7 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",") if os.environ.get(
 
 # Database configuration
 USE_DATABASE = os.environ.get("USE_DATABASE", "false").lower() == "true"
-DB_TABLE_NAME = os.environ.get("DB_TABLE_NAME", "visitors")
+DB_TABLE_NAME = os.environ.get("DB_TABLE_NAME", 'public."Visitor"')
 DB_VISITOR_ID_COLUMN = os.environ.get("DB_VISITOR_ID_COLUMN", "id")  # Changed from visitor_id to id
 DB_IMAGE_COLUMN = os.environ.get("DB_IMAGE_COLUMN", "base64Image")
 DB_FEATURES_COLUMN = os.environ.get("DB_FEATURES_COLUMN", "facefeatures")  # Column to store extracted face features
@@ -335,7 +335,7 @@ class BoundingBox(BaseModel):
     w: int
     h: int
 
-class DetectionResponse(BaseModel):
+class DetectionResponse(BaseModel):     
     faces: List[List[float]]  # List of [x, y, w, h] bounding boxes
     count: int  # Number of faces detected
 
@@ -390,6 +390,8 @@ class VisitorRecognitionResponse(BaseModel):
     visitor_id: Optional[str] = None  # Database visitor ID
     confidence: Optional[float] = None  # Match confidence score
     matched: bool = False  # Whether a match was found above threshold
+    firstName: Optional[str] = None  # Visitor's first name
+    lastName: Optional[str] = None  # Visitor's last name
     # Legacy fields for backward compatibility
     visitor: Optional[str] = None  # Deprecated: use visitor_id
     match_score: Optional[float] = None  # Deprecated: use confidence
@@ -599,10 +601,16 @@ async def recognize_visitor_api(
                 score_float = float(cosine_similarity)
                 is_match = score_float >= threshold
                 
+                # Get firstName and lastName from metadata
+                firstName = metadata.get('firstName') if metadata else None
+                lastName = metadata.get('lastName') if metadata else None
+                
                 results.append({
                     "visitor_id": visitor_id,
                     "match_score": score_float,
                     "is_match": bool(is_match),
+                    "firstName": firstName,
+                    "lastName": lastName,
                     **metadata  # Include any additional metadata
                 })
                 
@@ -612,7 +620,9 @@ async def recognize_visitor_api(
                     best_match = {
                         "visitor_id": visitor_id,
                         "match_score": score_float,
-                        "is_match": True
+                        "is_match": True,
+                        "firstName": firstName,
+                        "lastName": lastName
                     }
         except Exception as e:
             print(f"HNSW search error: {e}, falling back to linear search")
@@ -634,6 +644,8 @@ async def recognize_visitor_api(
                 for visitor_data in visitors:
                     visitor_id = str(visitor_data.get(DB_VISITOR_ID_COLUMN))
                     base64_image = visitor_data.get(DB_IMAGE_COLUMN)
+                    firstName = visitor_data.get('firstName')
+                    lastName = visitor_data.get('lastName')
                     
                     if not base64_image:
                         continue
@@ -684,6 +696,8 @@ async def recognize_visitor_api(
                             "visitor_id": visitor_id,
                             "match_score": score_float,
                             "is_match": bool(is_match),
+                            "firstName": firstName,
+                            "lastName": lastName,
                         })
                         
                         # Track best match
@@ -692,7 +706,9 @@ async def recognize_visitor_api(
                             best_match = {
                                 "visitor_id": visitor_id,
                                 "match_score": score_float,
-                                "is_match": True
+                                "is_match": True,
+                                "firstName": firstName,
+                                "lastName": lastName
                             }
                             
                     except Exception as e:
@@ -739,6 +755,8 @@ async def recognize_visitor_api(
             visitor_id=best_match.get("visitor_id"),
             confidence=best_match.get("match_score"),
             matched=True,
+            firstName=best_match.get("firstName"),
+            lastName=best_match.get("lastName"),
             visitor=best_match.get("visitor"),  # Legacy
             match_score=best_match.get("match_score"),  # Legacy
             matches=results[:10]  # Top 10 matches
@@ -748,6 +766,8 @@ async def recognize_visitor_api(
             visitor_id=None,
             confidence=None,
             matched=False,
+            firstName=None,
+            lastName=None,
             visitor=None,
             match_score=None,
             matches=results[:10] if results else []

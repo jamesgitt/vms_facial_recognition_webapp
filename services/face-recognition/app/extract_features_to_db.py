@@ -13,7 +13,7 @@ Usage:
 Environment Variables:
     USE_DATABASE=true
     DATABASE_URL=postgresql://user:password@host:5432/database
-    DB_TABLE_NAME=visitors
+    DB_TABLE_NAME=public."Visitor"
     DB_IMAGE_COLUMN=base64Image
     DB_FEATURES_COLUMN=faceFeatures
     DB_VISITOR_ID_COLUMN=id
@@ -55,7 +55,7 @@ except ImportError as e:
 
 # Configuration from environment
 USE_DATABASE = os.environ.get("USE_DATABASE", "false").lower() == "true"
-DB_TABLE_NAME = os.environ.get("DB_TABLE_NAME", "visitors")
+DB_TABLE_NAME = os.environ.get("DB_TABLE_NAME", 'public."Visitor"')
 DB_IMAGE_COLUMN = os.environ.get("DB_IMAGE_COLUMN", "base64Image")
 DB_FEATURES_COLUMN = os.environ.get("DB_FEATURES_COLUMN", "faceFeatures")
 DB_VISITOR_ID_COLUMN = os.environ.get("DB_VISITOR_ID_COLUMN", "id")
@@ -122,9 +122,11 @@ def get_visitors_needing_features(skip_existing: bool = True) -> list:
         conn = database.get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Build query
+        # Build query - include firstName and lastName
+        firstName_col = '"firstName"'
+        lastName_col = '"lastName"'
         query = f"""
-            SELECT {visitor_id_col}, {image_col}, {features_col}
+            SELECT {visitor_id_col}, {image_col}, {features_col}, {firstName_col}, {lastName_col}
             FROM {DB_TABLE_NAME}
             WHERE {image_col} IS NOT NULL
         """

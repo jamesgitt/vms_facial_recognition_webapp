@@ -20,6 +20,8 @@ interface RecognitionResponse {
   visitor_id: string | null;
   confidence: number | null;
   matched: boolean;
+  firstName?: string | null;
+  lastName?: string | null;
   visitor?: string | null;
   match_score?: number | null;
   matches?: Array<{
@@ -27,6 +29,8 @@ interface RecognitionResponse {
     visitor?: string;
     match_score?: number;
     is_match?: boolean;
+    firstName?: string | null;
+    lastName?: string | null;
   }>;
 }
 
@@ -416,7 +420,10 @@ export function FaceRecognitionCamera() {
           color = "#00FF00"; // Bright green for recognized
           const confidence = recognitionResult.confidence ?? 0;
           const visitorId = recognitionResult.visitor_id ?? recognitionResult.visitor ?? "Unknown";
-          label = `${visitorId} (${(confidence * 100).toFixed(1)}%)`;
+          const firstName = recognitionResult.firstName ?? "";
+          const lastName = recognitionResult.lastName ?? "";
+          const name = firstName || lastName ? `${firstName} ${lastName}`.trim() : visitorId;
+          label = `${name} (${(confidence * 100).toFixed(1)}%)`;
         } else {
           color = "#FF6B6B"; // Red for not recognized
           label = "Not Recognized";
@@ -492,7 +499,10 @@ export function FaceRecognitionCamera() {
                   setRecognitionTriggered(false);
                   setRecognitionStartTime(null);
                   if (recognition.matched) {
-                    setStatus(`Recognized: ${recognition.visitor_id ?? recognition.visitor ?? 'Unknown'} (${((recognition.confidence ?? 0) * 100).toFixed(1)}%)`);
+                    const recognizedName = (recognition.firstName || recognition.lastName)
+                      ? `${recognition.firstName ?? ""} ${recognition.lastName ?? ""}`.trim()
+                      : (recognition.visitor_id ?? recognition.visitor ?? 'Unknown');
+                    setStatus(`Recognized: ${recognizedName} (${((recognition.confidence ?? 0) * 100).toFixed(1)}%)`);
                   } else {
                     setStatus("Face not recognized in database. Press 'Start Recognition' to try again.");
                   }
@@ -924,6 +934,9 @@ export function FaceRecognitionCamera() {
                     {recognitionResult.matched && (
                       <div className="mt-1">
                         <div><strong>Visitor ID:</strong> {recognitionResult.visitor_id ?? recognitionResult.visitor ?? "Unknown"}</div>
+                        {(recognitionResult.firstName || recognitionResult.lastName) && (
+                          <div><strong>Name:</strong> {`${recognitionResult.firstName ?? ""} ${recognitionResult.lastName ?? ""}`.trim()}</div>
+                        )}
                         <div><strong>Confidence:</strong> {((recognitionResult.confidence ?? 0) * 100).toFixed(2)}%</div>
                       </div>
                     )}
@@ -932,13 +945,18 @@ export function FaceRecognitionCamera() {
                     <div className="rounded bg-gray-100 p-2">
                       <div className="text-sm font-semibold text-gray-700">Top Matches:</div>
                       <div className="mt-1 space-y-1">
-                        {recognitionResult.matches.slice(0, 5).map((match, idx) => (
-                          <div key={idx} className="text-xs text-gray-600">
-                            {idx + 1}. {match.visitor_id ?? match.visitor ?? "Unknown"} - 
-                            {match.match_score ? ` ${(match.match_score * 100).toFixed(1)}%` : " N/A"}
-                            {match.is_match && " ✓"}
-                          </div>
-                        ))}
+                        {recognitionResult.matches.slice(0, 5).map((match, idx) => {
+                          const matchName = (match.firstName || match.lastName) 
+                            ? `${match.firstName ?? ""} ${match.lastName ?? ""}`.trim()
+                            : (match.visitor_id ?? match.visitor ?? "Unknown");
+                          return (
+                            <div key={idx} className="text-xs text-gray-600">
+                              {idx + 1}. {matchName} - 
+                              {match.match_score ? ` ${(match.match_score * 100).toFixed(1)}%` : " N/A"}
+                              {match.is_match && " ✓"}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

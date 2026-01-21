@@ -93,7 +93,7 @@ def init_connection_pool(min_conn=1, max_conn=10):
 
 
 def get_visitor_images_from_db(
-    table_name: str = "visitors",
+    table_name: str = 'public."Visitor"',
     visitor_id_column: str = "id",
     image_column: str = "base64Image",
     features_column: Optional[str] = None,
@@ -104,7 +104,7 @@ def get_visitor_images_from_db(
     Query visitor images and features from the database.
     
     Args:
-        table_name: Name of the visitors table (default: "visitors")
+        table_name: Name of the visitors table (default: 'public."Visitor"')
         visitor_id_column: Column name for visitor ID (default: "visitor_id")
         image_column: Column name for base64 image (default: "base64Image")
         features_column: Column name for face features (default: None, will not fetch if not provided)
@@ -112,8 +112,8 @@ def get_visitor_images_from_db(
         active_only: If True, only get active visitors (requires 'active' or 'status' column)
     
     Returns:
-        List of dictionaries with visitor_id, base64Image, and optionally faceFeatures
-        Example: [{"id": "123", "base64Image": "base64_string", "faceFeatures": "base64_feature", ...}, ...]
+        List of dictionaries with visitor_id, base64Image, firstName, lastName, and optionally faceFeatures
+        Example: [{"id": "123", "base64Image": "base64_string", "firstName": "John", "lastName": "Doe", "faceFeatures": "base64_feature", ...}, ...]
     """
     conn = None
     try:
@@ -135,6 +135,11 @@ def get_visitor_images_from_db(
         if features_column:
             features_col = f'"{features_column}"' if features_column in case_sensitive_cols else features_column
             select_cols.append(f"{features_col}")
+        
+        # Always include firstName and lastName if they exist in the table
+        firstName_col = '"firstName"' if 'firstName' in case_sensitive_cols else 'firstName'
+        lastName_col = '"lastName"' if 'lastName' in case_sensitive_cols else 'lastName'
+        select_cols.extend([firstName_col, lastName_col])
         
         query = f"""
             SELECT {', '.join(select_cols)}
@@ -175,7 +180,7 @@ def get_visitor_images_from_db(
 
 def get_visitor_details(
     visitor_id: str,
-    table_name: str = "visitors",
+    table_name: str = 'public."Visitor"',
     visitor_id_column: str = "id"
 ) -> Optional[Dict]:
     """
@@ -222,7 +227,7 @@ def get_visitor_details(
 def update_visitor_features(
     visitor_id: str,
     features: np.ndarray,
-    table_name: str = "visitors",
+    table_name: str = 'public."Visitor"',
     visitor_id_column: str = "id",
     features_column: str = "faceFeatures"
 ) -> bool:
