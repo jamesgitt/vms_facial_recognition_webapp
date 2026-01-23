@@ -1,20 +1,19 @@
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: facial_recog_postgres
+    container_name: ${POSTGRES_CONTAINER_NAME}
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}  # ⚠️ Set POSTGRES_PASSWORD in .env file
-      POSTGRES_DB: ${POSTGRES_DB:-visitors_db}
-      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: ${PGDATA}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ${POSTGRES_DATA_VOLUME}:/var/lib/postgresql/data
+      - ${POSTGRES_INIT_SQL}:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,19 +21,18 @@ services:
     networks:
       - facial_recog_network
 
-  # Optional: pgAdmin for database management
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: facial_recog_pgadmin
+    container_name: ${PGADMIN_CONTAINER_NAME}
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}  # ⚠️ Set PGADMIN_PASSWORD in .env file
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
       PGADMIN_CONFIG_SERVER_MODE: 'False'
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
     ports:
-      - "${PGADMIN_PORT:-5050}:80"
+      - "${PGADMIN_PORT}:80"
     volumes:
-      - pgadmin_data:/var/lib/pgadmin
+      - ${PGADMIN_DATA_VOLUME}:/var/lib/pgadmin
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,70 +40,55 @@ services:
     networks:
       - facial_recog_network
     profiles:
-      - tools  # Only start with --profile tools
+      - tools
 
-  # FastAPI Backend (Face Recognition API)
   backend:
     build:
-      context: ./services/face-recognition
-      dockerfile: Dockerfile
-    container_name: facial_recog_backend
+      context: ${BACKEND_BUILD_CONTEXT}
+      dockerfile: ${BACKEND_DOCKERFILE}
+    container_name: ${BACKEND_CONTAINER_NAME}
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT}:8000"
     volumes:
-      - ./services/face-recognition/app/models:/app/app/models:ro
-      - ./services/face-recognition/test_images:/app/app/test_images:ro
+      - ${MODELS_PATH_VOLUME}:/app/app/models:ro
+      - ${TEST_IMAGES_VOLUME}:/app/app/test_images:ro
     environment:
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://frontend:3000}
-      - MODELS_PATH=/app/app/models
-      - USE_DATABASE=${USE_DATABASE:-true}
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-visitors_db}
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=${POSTGRES_DB:-visitors_db}
-      - DB_USER=${POSTGRES_USER:-postgres}
-      - DB_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - DB_TABLE_NAME=${DB_TABLE_NAME:-visitors}
-      - DB_VISITOR_ID_COLUMN=${DB_VISITOR_ID_COLUMN:-id}
-      - DB_IMAGE_COLUMN=${DB_IMAGE_COLUMN:-base64Image}
-      - DB_VISITOR_LIMIT=${DB_VISITOR_LIMIT:-0}
-      - API_HOST=0.0.0.0
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - MODELS_PATH=${MODELS_PATH}
+      - USE_DATABASE=${USE_DATABASE}
+      - DATABASE_URL=${DATABASE_URL}
+      - DB_TABLE_NAME=${DB_TABLE_NAME}
+      - DB_VISITOR_ID_COLUMN=${DB_VISITOR_ID_COLUMN}
+      - DB_IMAGE_COLUMN=${DB_IMAGE_COLUMN}
+      - DB_FEATURES_COLUMN=${DB_FEATURES_COLUMN}
+      - DB_VISITOR_LIMIT=${DB_VISITOR_LIMIT}
+      - API_HOST=${API_HOST}
       - API_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('${BACKEND_HEALTHCHECK_URL}')"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 600s  # 10 minutes to allow HNSW index building during startup
-    depends_on:
-      postgres:
-        condition: service_healthy
+      start_period: 1800s
     restart: unless-stopped
     networks:
       - facial_recog_network
 
-  # Next.js Frontend
   frontend:
     build:
-      context: ./apps/facial_recog_web_app
-      dockerfile: Dockerfile
-    container_name: facial_recog_frontend
+      context: ${FRONTEND_BUILD_CONTEXT}
+      dockerfile: ${FRONTEND_DOCKERFILE}
+    container_name: ${FRONTEND_CONTAINER_NAME}
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT}:3000"
     environment:
-      - NODE_ENV=production
-      # API URL: Use backend service name for internal Docker networking
-      # For browser access, this should be http://localhost:8000 (set in .env)
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      - SKIP_ENV_VALIDATION=true
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-visitors_db}
-      # Authentication (required for email/password auth)
-      # Generate with: openssl rand -base64 32
-      - AUTH_SECRET=${AUTH_SECRET:-change-me-in-production}
-      # AUTH_URL: Public URL where the app is accessible (for NextAuth)
-      - AUTH_URL=${AUTH_URL:-http://localhost:3000}
-      # Trust host for NextAuth (required for Docker)
-      - AUTH_TRUST_HOST=true
+      - NODE_ENV=${NODE_ENV}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+      - SKIP_ENV_VALIDATION=${SKIP_ENV_VALIDATION}
+      - DATABASE_URL=${FRONTEND_DATABASE_URL}
+      - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_URL=${AUTH_URL}
+      - AUTH_TRUST_HOST=${AUTH_TRUST_HOST}
     depends_on:
       backend:
         condition: service_healthy

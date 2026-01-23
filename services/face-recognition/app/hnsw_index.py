@@ -385,7 +385,12 @@ class HNSWIndexManager:
                             sample_errors.append(f"Visitor {visitor_id}: {reason}")
                         features_failed += 1
                         continue
-                    batch_data.append((visitor_id, feature, visitor_data))
+                    # Only store minimal metadata (NOT base64Image to keep metadata small)
+                    minimal_metadata = {
+                        'firstName': visitor_data.get('firstName', ''),
+                        'lastName': visitor_data.get('lastName', ''),
+                    }
+                    batch_data.append((visitor_id, feature, minimal_metadata))
                     features_extracted += 1
                     if features_extracted <= 5:  # Log first few successes
                         print(f"  ✓ Extracted {self.dimension}-dim feature for visitor {visitor_id}")
