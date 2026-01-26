@@ -34,10 +34,10 @@ interface RecognitionResponse {
   }>;
 }
 
-// Fixed output dimensions for consistent face recognition
+// Fixed output dimensions for consistent face recognition (portrait mode)
 // Must match the resolution used for stored photos
-const OUTPUT_WIDTH = 640;
-const OUTPUT_HEIGHT = 480;
+const OUTPUT_WIDTH = 480;
+const OUTPUT_HEIGHT = 640;
 
 export function FaceRecognitionCamera() {
   const videoRef = useRef<HTMLVideoElement>(null);
