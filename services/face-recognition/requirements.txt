@@ -1,23 +1,12 @@
 # Core Libraries
 numpy>=1.26.0
 
-# Data Science (required for notebook explorations only, not prod API)
-pandas>=2.0.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
-
 # Machine Learning & Feature Extraction
 opencv-python>=4.8.0
 Pillow>=10.0.0
-kagglehub>=0.2.0
 
 # HNSW Approximate Nearest Neighbor Search
 hnswlib>=0.7.0
-
-# Deep Learning Models (optional for some workflows/processes)
-tensorflow>=2.13.0
-tf-keras>=2.20.0
-deepface>=0.0.79
 
 # API & Web
 fastapi>=0.104.0
@@ -33,8 +22,3 @@ psycopg2-binary>=2.9.9
 
 # Environment Variables
 python-dotenv>=1.0.0
-
-# --- Notes ---
-# - TensorFlow requires Python 3.11 or 3.12; not compatible with Python 3.14+
-# - Avoid duplicate requirements.
-# - All standard library modules (os, io, json, base64, datetime, typing...) are native and do NOT need to be listed.

@@ -5,7 +5,7 @@ A high-performance REST API for face detection and recognition using YuNet (face
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Python 3.11 or 3.12** (required for TensorFlow/DeepFace dependencies)
+- **Python 3.11 or 3.12** (recommended)
 - **Docker and Docker Compose** (recommended)
 - **PostgreSQL** (optional, falls back to test images if not configured)
 
@@ -224,7 +224,7 @@ services/face-recognition/
 │       └── face_recognition_sface_2021dec.onnx
 ├── test_images/                # Test images for fallback recognition
 ├── Dockerfile                  # Container definition
-├── requirements.txt           # Python dependencies
+├── requirements.txt            # Python dependencies
 └── README.md                   # Service documentation
 ```
 
@@ -304,6 +304,8 @@ ports:
 
 ## 📚 Dependencies
 
+The following are the main dependencies. For the full list and exact versions, see `services/face-recognition/requirements.txt`.
+
 ### Core Libraries
 - `fastapi` - Modern web framework for building APIs
 - `uvicorn` - ASGI server
@@ -313,8 +315,6 @@ ports:
 
 ### Machine Learning
 - `hnswlib` - HNSW approximate nearest neighbor search
-- `tensorflow` - Deep learning framework (optional, for DeepFace)
-- `deepface` - Face analysis library (optional)
 
 ### Database
 - `psycopg2-binary` - PostgreSQL adapter
@@ -324,7 +324,7 @@ ports:
 - `python-dotenv` - Environment variable management
 - `websockets` - WebSocket support
 
-See `services/face-recognition/requirements.txt` for complete dependency list.
+> **Note:** If your use case requires DeepFace or TensorFlow, you must install them manually, as they are no longer part of the requirements.txt by default.
 
 ## 🚢 Production Deployment
 
