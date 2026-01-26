@@ -5,9 +5,12 @@ __pycache__/
 *.so
 .Python
 env/
+env.test/
 venv/
+venvback/
 ENV/
 .venv
+models/
 
 # Testing
 .pytest_cache/
@@ -20,6 +23,7 @@ htmlcov/
 *.swp
 *.swo
 *~
+.cursor/
 
 # OS
 .DS_Store
