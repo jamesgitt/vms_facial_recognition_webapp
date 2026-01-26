@@ -188,7 +188,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "C:\\Users\\jamconcepcion\\Desktop\\VMS_Facial_Recognition_TEST\\apps\\facial_recog_web_app\\generated\\prisma",
+      "value": "/home/azureuser/vms_facial_recognition_webapp/apps/facial_recog_web_app/generated/prisma",
       "fromEnvVar": null
     },
     "config": {
@@ -197,17 +197,20 @@ const config = {
     "binaryTargets": [
       {
         "fromEnvVar": null,
-        "value": "windows",
+        "value": "debian-openssl-3.0.x",
         "native": true
+      },
+      {
+        "fromEnvVar": null,
+        "value": "linux-musl-openssl-3.0.x"
       }
     ],
     "previewFeatures": [],
-    "sourceFilePath": "C:\\Users\\jamconcepcion\\Desktop\\VMS_Facial_Recognition_TEST\\apps\\facial_recog_web_app\\prisma\\schema.prisma",
+    "sourceFilePath": "/home/azureuser/vms_facial_recognition_webapp/apps/facial_recog_web_app/prisma/schema.prisma",
     "isCustomOutput": true
   },
   "relativeEnvPaths": {
-    "rootEnvPath": null,
-    "schemaEnvPath": "../../.env"
+    "rootEnvPath": null
   },
   "relativePath": "../../prisma",
   "clientVersion": "6.19.2",
@@ -216,6 +219,7 @@ const config = {
     "db"
   ],
   "activeProvider": "postgresql",
+  "postinstall": false,
   "inlineDatasources": {
     "db": {
       "url": {
@@ -224,8 +228,8 @@ const config = {
       }
     }
   },
-  "inlineSchema": "// This is your Prisma schema file,\n// learn more about it in the docs: https://pris.ly/d/prisma-schema\n\ngenerator client {\n  provider = \"prisma-client-js\"\n  output   = \"../generated/prisma\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  // NOTE: When using mysql or sqlserver, uncomment the @db.Text annotations in model Account below\n  // Further reading:\n  // https://next-auth.js.org/adapters/prisma#create-the-prisma-schema\n  // https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#string\n  url      = env(\"DATABASE_URL\")\n}\n\nmodel Post {\n  id        Int      @id @default(autoincrement())\n  name      String\n  createdAt DateTime @default(now())\n  updatedAt DateTime @updatedAt\n\n  createdBy   User   @relation(fields: [createdById], references: [id])\n  createdById String\n\n  @@index([name])\n}\n\n// Necessary for Next auth\nmodel Account {\n  id                       String  @id @default(cuid())\n  userId                   String\n  type                     String\n  provider                 String\n  providerAccountId        String\n  refresh_token            String? // @db.Text\n  access_token             String? // @db.Text\n  expires_at               Int?\n  token_type               String?\n  scope                    String?\n  id_token                 String? // @db.Text\n  session_state            String?\n  user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)\n  refresh_token_expires_in Int?\n\n  @@unique([provider, providerAccountId])\n}\n\nmodel Session {\n  id           String   @id @default(cuid())\n  sessionToken String   @unique\n  userId       String\n  expires      DateTime\n  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)\n}\n\nmodel User {\n  id            String    @id @default(cuid())\n  name          String?\n  email         String?   @unique\n  emailVerified DateTime?\n  image         String?\n  password      String? // For email/password authentication\n  accounts      Account[]\n  sessions      Session[]\n  posts         Post[]\n}\n\nmodel VerificationToken {\n  identifier String\n  token      String   @unique\n  expires    DateTime\n\n  @@unique([identifier, token])\n}\n\n// Visitors table (managed by backend, not by Prisma)\n// This is here so Prisma doesn't try to drop it during migrations\nmodel visitors {\n  id          String   @id @db.VarChar(255)\n  firstName   String?  @map(\"firstName\") @db.VarChar(255)\n  lastName    String?  @map(\"lastName\") @db.VarChar(255)\n  fullName    String?  @map(\"fullName\") @db.VarChar(255)\n  email       String?  @db.VarChar(255)\n  phone       String?  @db.VarChar(50)\n  imageUrl    String?  @map(\"imageUrl\") @db.VarChar(500)\n  base64Image String?  @map(\"base64Image\") @db.Text\n  createdAt   DateTime @default(now()) @map(\"createdAt\")\n  updatedAt   DateTime @updatedAt @map(\"updatedAt\")\n\n  @@index([createdAt])\n  @@index([email])\n  @@index([fullName])\n  @@map(\"visitors\")\n}\n",
-  "inlineSchemaHash": "ea8c93f6c0bd2c9db4bb56d339007fcdb62f3cace2205470e9fd71373f647913",
+  "inlineSchema": "// This is your Prisma schema file,\n// learn more about it in the docs: https://pris.ly/d/prisma-schema\n\ngenerator client {\n  provider      = \"prisma-client-js\"\n  output        = \"../generated/prisma\"\n  binaryTargets = [\"native\", \"linux-musl-openssl-3.0.x\"]\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  // NOTE: When using mysql or sqlserver, uncomment the @db.Text annotations in model Account below\n  // Further reading:\n  // https://next-auth.js.org/adapters/prisma#create-the-prisma-schema\n  // https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#string\n  url      = env(\"DATABASE_URL\")\n}\n\nmodel Post {\n  id        Int      @id @default(autoincrement())\n  name      String\n  createdAt DateTime @default(now())\n  updatedAt DateTime @updatedAt\n\n  createdBy   User   @relation(fields: [createdById], references: [id])\n  createdById String\n\n  @@index([name])\n}\n\n// Necessary for Next auth\nmodel Account {\n  id                       String  @id @default(cuid())\n  userId                   String\n  type                     String\n  provider                 String\n  providerAccountId        String\n  refresh_token            String? // @db.Text\n  access_token             String? // @db.Text\n  expires_at               Int?\n  token_type               String?\n  scope                    String?\n  id_token                 String? // @db.Text\n  session_state            String?\n  user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)\n  refresh_token_expires_in Int?\n\n  @@unique([provider, providerAccountId])\n}\n\nmodel Session {\n  id           String   @id @default(cuid())\n  sessionToken String   @unique\n  userId       String\n  expires      DateTime\n  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)\n}\n\nmodel User {\n  id            String    @id @default(cuid())\n  name          String?\n  email         String?   @unique\n  emailVerified DateTime?\n  image         String?\n  password      String? // For email/password authentication\n  accounts      Account[]\n  sessions      Session[]\n  posts         Post[]\n}\n\nmodel VerificationToken {\n  identifier String\n  token      String   @unique\n  expires    DateTime\n\n  @@unique([identifier, token])\n}\n\n// Visitors table (managed by backend, not by Prisma)\n// This is here so Prisma doesn't try to drop it during migrations\nmodel visitors {\n  id          String   @id @db.VarChar(255)\n  firstName   String?  @map(\"firstName\") @db.VarChar(255)\n  lastName    String?  @map(\"lastName\") @db.VarChar(255)\n  fullName    String?  @map(\"fullName\") @db.VarChar(255)\n  email       String?  @db.VarChar(255)\n  phone       String?  @db.VarChar(50)\n  imageUrl    String?  @map(\"imageUrl\") @db.VarChar(500)\n  base64Image String?  @map(\"base64Image\") @db.Text\n  createdAt   DateTime @default(now()) @map(\"createdAt\")\n  updatedAt   DateTime @updatedAt @map(\"updatedAt\")\n\n  @@index([createdAt])\n  @@index([email])\n  @@index([fullName])\n  @@map(\"visitors\")\n}\n",
+  "inlineSchemaHash": "c5f6fc96870c95939d9401390dcf31b1a66087f17d454d1660b8e892180f63e8",
   "copyEngine": true
 }
 
@@ -264,8 +268,12 @@ exports.PrismaClient = PrismaClient
 Object.assign(exports, Prisma)
 
 // file annotations for bundling tools to include these files
-path.join(__dirname, "query_engine-windows.dll.node");
-path.join(process.cwd(), "generated/prisma/query_engine-windows.dll.node")
+path.join(__dirname, "libquery_engine-debian-openssl-3.0.x.so.node");
+path.join(process.cwd(), "generated/prisma/libquery_engine-debian-openssl-3.0.x.so.node")
+
+// file annotations for bundling tools to include these files
+path.join(__dirname, "libquery_engine-linux-musl-openssl-3.0.x.so.node");
+path.join(process.cwd(), "generated/prisma/libquery_engine-linux-musl-openssl-3.0.x.so.node")
 // file annotations for bundling tools to include these files
 path.join(__dirname, "schema.prisma");
 path.join(process.cwd(), "generated/prisma/schema.prisma")
