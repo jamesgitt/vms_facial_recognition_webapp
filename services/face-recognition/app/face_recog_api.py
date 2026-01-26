@@ -340,14 +340,26 @@ def load_models():
     # Load visitors
     VISITOR_FEATURES.clear()
     
-    if USE_DATABASE and DB_AVAILABLE:
+    # Check if HNSW index already has data (skip expensive database reload)
+    index_has_data = False
+    if hnsw_index_manager:
+        try:
+            count = hnsw_index_manager.ntotal
+            if count > 0:
+                print(f"[OK] HNSW index already has {count} vectors - skipping database reload")
+                index_has_data = True
+        except Exception as e:
+            print(f"[DEBUG] Could not check index count: {e}")
+    
+    if USE_DATABASE and DB_AVAILABLE and not index_has_data:
         print("[OK] Using database for visitor recognition")
         if load_visitors_from_database(hnsw_index_manager) == 0:
             print("[WARNING] No visitors loaded from database - falling back to test_images")
             USE_DATABASE = False
     
     if not USE_DATABASE or not DB_AVAILABLE:
-        load_visitors_from_test_images(hnsw_index_manager)
+        if not index_has_data:
+            load_visitors_from_test_images(hnsw_index_manager)
 
 
 # =============================================================================
