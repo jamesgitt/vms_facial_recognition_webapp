@@ -1,17 +1,17 @@
 """
 HNSW Index Manager for Fast Face Recognition
+
 Uses HNSW (Hierarchical Navigable Small World) approximate nearest neighbor search
 for efficient face feature matching using cosine similarity.
 """
 
 import os
 import pickle
-import numpy as np
-from typing import List, Dict, Tuple, Optional, TYPE_CHECKING, Any
+import traceback
 from pathlib import Path
+from typing import List, Dict, Tuple, Optional, Any, Callable
 
-if TYPE_CHECKING:
-    import hnswlib
+import numpy as np
 
 try:
     import hnswlib  # type: ignore[import-untyped]
@@ -24,35 +24,35 @@ except ImportError:
 # Configuration
 INDEX_FILE = os.environ.get("HNSW_INDEX_FILE", "hnsw_visitor_index.bin")
 METADATA_FILE = os.environ.get("HNSW_METADATA_FILE", "hnsw_visitor_metadata.pkl")
-DEFAULT_DIMENSION = 128  # Sface feature dimension (default is 128-dim)
-DEFAULT_M = 16   # HNSW parameter: number of bi-directional links (higher=better recall)
-DEFAULT_EF_CONSTRUCTION = 200  # HNSW parameter: higher = better index quality
-DEFAULT_EF_SEARCH = 200  # HNSW parameter: more neighbors explored = compare to more faces
-DEFAULT_MAX_ELEMENTS = int(os.environ.get("HNSW_MAX_ELEMENTS", "100000"))  # Max vectors in index (default: 100k)
+DEFAULT_DIMENSION = 128
+DEFAULT_M = 16
+DEFAULT_EF_CONSTRUCTION = 200
+DEFAULT_EF_SEARCH = 200
+DEFAULT_MAX_ELEMENTS = int(os.environ.get("HNSW_MAX_ELEMENTS", "100000"))
 
 
 class HNSWIndexManager:
-    """
-    Manages HNSW index for fast face recognition using cosine similarity.
-    """
+    """Manages HNSW index for fast face recognition using cosine similarity."""
     
-    def __init__(self, 
-                 dimension: int = DEFAULT_DIMENSION,
-                 m: int = DEFAULT_M,
-                 ef_construction: int = DEFAULT_EF_CONSTRUCTION,
-                 ef_search: int = DEFAULT_EF_SEARCH,
-                 index_dir: str = "models",
-                 max_elements: int = DEFAULT_MAX_ELEMENTS):
+    def __init__(
+        self,
+        dimension: int = DEFAULT_DIMENSION,
+        m: int = DEFAULT_M,
+        ef_construction: int = DEFAULT_EF_CONSTRUCTION,
+        ef_search: int = DEFAULT_EF_SEARCH,
+        index_dir: str = "models",
+        max_elements: int = DEFAULT_MAX_ELEMENTS
+    ):
         """
         Initialize HNSW index manager.
         
         Args:
-            dimension: Feature vector dimension (default: 128 for Sface)
-            m: HNSW parameter - number of bi-directional links (default: 8)
-            ef_construction: HNSW parameter - size of dynamic candidate list during construction (default: 40)
-            ef_search: HNSW parameter - number of nearest neighbors to explore during search (default: 10)
+            dimension: Feature vector dimension (default: 128 for SFace)
+            m: Number of bi-directional links (higher = better recall)
+            ef_construction: Size of dynamic candidate list during construction
+            ef_search: Number of nearest neighbors to explore during search
             index_dir: Directory to store index files
-            max_elements: Maximum number of vectors in index (default: 100000, set via HNSW_MAX_ELEMENTS env var)
+            max_elements: Maximum number of vectors in index
         """
         if not HNSW_AVAILABLE:
             raise ImportError("HNSW is not available. Install with: pip install hnswlib")
@@ -65,21 +65,26 @@ class HNSWIndexManager:
         self.index_dir = Path(index_dir)
         self.index_dir.mkdir(parents=True, exist_ok=True)
         
-        self.index: Optional[Any] = None  # hnswlib.Index when HNSW is available
-        self.metadata: Dict[int, Dict] = {}  # Maps index position to visitor info
-        self.visitor_id_to_index: Dict[str, int] = {}  # Maps visitor_id to index position
+        self.index: Optional[Any] = None
+        self.metadata: Dict[int, Dict] = {}
+        self.visitor_id_to_index: Dict[str, int] = {}
         self.next_index = 0
         
-        # Load existing index if available
         self._load_index()
     
-    def _create_index(self) -> Any:  # Returns hnswlib.Index when HNSW is available
+    @property
+    def _index_path(self) -> Path:
+        return self.index_dir / INDEX_FILE
+    
+    @property
+    def _metadata_path(self) -> Path:
+        return self.index_dir / METADATA_FILE
+    
+    def _create_index(self) -> Any:
         """Create a new HNSW index for cosine similarity."""
-        if not HNSW_AVAILABLE or hnswlib is None:
+        if hnswlib is None:
             raise RuntimeError("HNSW is not available")
         
-        # Create HNSW index with cosine similarity (inner product for normalized vectors)
-        # hnswlib uses 'cosine' space for cosine similarity
         index = hnswlib.Index(space='cosine', dim=self.dimension)
         index.init_index(max_elements=self.max_elements, ef_construction=self.ef_construction, M=self.m)
         index.set_ef(self.ef_search)
@@ -87,62 +92,57 @@ class HNSWIndexManager:
     
     def _load_index(self) -> bool:
         """Load index and metadata from disk."""
-        index_path = self.index_dir / INDEX_FILE
-        metadata_path = self.index_dir / METADATA_FILE
+        if not (self._index_path.exists() and self._metadata_path.exists()):
+            self.index = self._create_index()
+            return False
         
-        if index_path.exists() and metadata_path.exists():
-            try:
-                # Load HNSW index
-                if not HNSW_AVAILABLE or hnswlib is None:
-                    raise RuntimeError("HNSW is not available")
-                
-                index = hnswlib.Index(space='cosine', dim=self.dimension)
-                index.load_index(str(index_path))
-                index.set_ef(self.ef_search)
-                self.index = index
-                
-                # Load metadata
-                with open(metadata_path, 'rb') as f:
-                    data = pickle.load(f)
-                    self.metadata = data.get('metadata', {})
-                    self.visitor_id_to_index = data.get('visitor_id_to_index', {})
-                    self.next_index = data.get('next_index', 0)
-                
-                print(f"✓ Loaded HNSW index with {self.index.get_current_count()} vectors")
-                return True
-            except Exception as e:
-                print(f"⚠ Error loading HNSW index: {e}. Creating new index.")
-                self.index = self._create_index()
-                return False
-        else:
-            # Create new index
+        try:
+            if hnswlib is None:
+                raise RuntimeError("HNSW is not available")
+            
+            index = hnswlib.Index(space='cosine', dim=self.dimension)
+            index.load_index(str(self._index_path))
+            index.set_ef(self.ef_search)
+            self.index = index
+            
+            with open(self._metadata_path, 'rb') as f:
+                data = pickle.load(f)
+                self.metadata = data.get('metadata', {})
+                self.visitor_id_to_index = data.get('visitor_id_to_index', {})
+                self.next_index = data.get('next_index', 0)
+            
+            print(f"[OK] Loaded HNSW index with {self.index.get_current_count()} vectors")
+            return True
+            
+        except Exception as e:
+            print(f"[WARNING] Error loading HNSW index: {e}. Creating new index.")
             self.index = self._create_index()
             return False
     
     def _save_index(self) -> bool:
         """Save index and metadata to disk."""
+        if self.index is None:
+            return False
+        
         try:
-            index_path = self.index_dir / INDEX_FILE
-            metadata_path = self.index_dir / METADATA_FILE
+            self.index.save_index(str(self._index_path))
             
-            # Save HNSW index
-            if self.index is None:
-                return False
-            self.index.save_index(str(index_path))
-            
-            # Save metadata
             data = {
                 'metadata': self.metadata,
                 'visitor_id_to_index': self.visitor_id_to_index,
                 'next_index': self.next_index
             }
-            with open(metadata_path, 'wb') as f:
+            with open(self._metadata_path, 'wb') as f:
                 pickle.dump(data, f)
             
             return True
         except Exception as e:
-            print(f"⚠ Error saving HNSW index: {e}")
+            print(f"[WARNING] Error saving HNSW index: {e}")
             return False
+    
+    def _normalize_feature(self, feature: np.ndarray) -> np.ndarray:
+        """Normalize feature vector for cosine similarity."""
+        return (feature / np.linalg.norm(feature)).astype('float32')
     
     def add_visitor(self, visitor_id: str, feature: np.ndarray, metadata: Optional[Dict] = None) -> bool:
         """
@@ -151,34 +151,24 @@ class HNSWIndexManager:
         Args:
             visitor_id: Unique visitor identifier
             feature: Face feature vector (128-dim numpy array)
-            metadata: Optional metadata (e.g., name, image_path)
+            metadata: Optional metadata (e.g., name)
         
         Returns:
             True if successful, False otherwise
         """
-        if not HNSW_AVAILABLE or self.index is None:
+        if self.index is None:
             return False
         
         if visitor_id in self.visitor_id_to_index:
-            # Visitor already exists, skip or update
             print(f"Visitor {visitor_id} already in index, skipping")
             return False
         
         try:
-            # Normalize feature vector for cosine similarity
-            feature_norm = feature / np.linalg.norm(feature)
-            feature_norm = feature_norm.astype('float32')
-            
-            # Add to index
+            feature_norm = self._normalize_feature(feature)
             self.index.add_items(feature_norm.reshape(1, -1), np.array([self.next_index]))
             
-            # Store metadata
-            idx = self.next_index
-            self.metadata[idx] = {
-                'visitor_id': visitor_id,
-                **(metadata or {})
-            }
-            self.visitor_id_to_index[visitor_id] = idx
+            self.metadata[self.next_index] = {'visitor_id': visitor_id, **(metadata or {})}
+            self.visitor_id_to_index[visitor_id] = self.next_index
             self.next_index += 1
             
             return True
@@ -196,73 +186,54 @@ class HNSWIndexManager:
         Returns:
             Number of visitors successfully added
         """
-        if not HNSW_AVAILABLE or not visitors or self.index is None:
+        if not visitors or self.index is None:
             return 0
         
         features_list = []
         indices_list = []
-        metadata_list = []
+        pending_metadata = []
         
-        for visitor_id, feature, metadata in visitors:
-            if feature is None:
+        for visitor_id, feature, meta in visitors:
+            if feature is None or visitor_id in self.visitor_id_to_index:
                 continue
             
-            # Ensure feature is 1D array
             feature = np.asarray(feature).flatten()
-            
-            # Validate feature dimension matches expected dimension
             if feature.shape[0] != self.dimension:
-                print(f"⚠ Skipping visitor {visitor_id}: feature dimension {feature.shape[0]} != {self.dimension}")
+                print(f"[WARNING] Skipping visitor {visitor_id}: dimension {feature.shape[0]} != {self.dimension}")
                 continue
             
-            # Skip if already exists
-            if visitor_id in self.visitor_id_to_index:
-                continue
-            
-            # Normalize feature
-            feature_norm = feature / np.linalg.norm(feature)
-            features_list.append(feature_norm.astype('float32'))
+            feature_norm = self._normalize_feature(feature)
+            features_list.append(feature_norm)
             indices_list.append(self.next_index)
             
-            # Extract firstName and lastName from metadata if available
-            metadata_dict = {
+            pending_metadata.append({
+                'idx': self.next_index,
                 'visitor_id': visitor_id,
-                'index': self.next_index,
-                'firstName': metadata.get('firstName') if metadata else None,
-                'lastName': metadata.get('lastName') if metadata else None,
-                **(metadata or {})
-            }
-            metadata_list.append(metadata_dict)
+                'firstName': meta.get('firstName') if meta else None,
+                'lastName': meta.get('lastName') if meta else None,
+            })
             self.visitor_id_to_index[visitor_id] = self.next_index
             self.next_index += 1
         
         if not features_list:
-            print(f"⚠ No valid features to add to HNSW index (processed {len(visitors)} visitors)")
-            if visitors:
-                # Debug: show first visitor's feature shape
-                first_id, first_feature, _ = visitors[0]
-                if first_feature is not None:
-                    print(f"  Debug: First visitor '{first_id}' feature shape: {np.asarray(first_feature).shape}, expected: ({self.dimension},)")
+            print(f"[WARNING] No valid features to add (processed {len(visitors)} visitors)")
             return 0
         
         try:
-            # Batch add to index
             features_array = np.vstack(features_list)
             indices_array = np.array(indices_list)
             print(f"Adding {len(features_list)} features to HNSW index...")
             self.index.add_items(features_array, indices_array)
             
-            # Store metadata
-            for meta in metadata_list:
-                idx = meta['index']
-                del meta['index']
+            for meta in pending_metadata:
+                idx = meta.pop('idx')
                 self.metadata[idx] = meta
             
-            print(f"✓ Successfully added {len(features_list)} visitors to HNSW index")
+            print(f"[OK] Added {len(features_list)} visitors to HNSW index")
             return len(features_list)
+            
         except Exception as e:
-            print(f"⚠ Error batch adding visitors to HNSW index: {e}")
-            import traceback
+            print(f"[WARNING] Error batch adding to HNSW index: {e}")
             traceback.print_exc()
             return 0
     
@@ -275,10 +246,9 @@ class HNSWIndexManager:
             k: Number of nearest neighbors to return
         
         Returns:
-            List of (visitor_id, cosine_similarity, metadata) tuples, sorted by similarity (descending)
-            Note: cosine_similarity ranges from -1 to 1, higher is better
+            List of (visitor_id, cosine_similarity, metadata) tuples, sorted by similarity descending
         """
-        if not HNSW_AVAILABLE or self.index is None:
+        if self.index is None:
             return []
         
         try:
@@ -286,13 +256,7 @@ class HNSWIndexManager:
             if current_count == 0:
                 return []
             
-            # Normalize query feature
-            query_norm = query_feature / np.linalg.norm(query_feature)
-            query_norm = query_norm.astype('float32').reshape(1, -1)
-            
-            # Search - hnswlib returns labels (indices) and distances
-            # For cosine space, distances are already cosine distances
-            # Cosine similarity = 1 - cosine_distance
+            query_norm = self._normalize_feature(query_feature).reshape(1, -1)
             labels, distances = self.index.knn_query(query_norm, k=min(k, current_count))
             
             results = []
@@ -302,31 +266,24 @@ class HNSWIndexManager:
                     continue
                 
                 visitor_id = self.metadata[idx].get('visitor_id', f'unknown_{idx}')
-                # Convert cosine distance to cosine similarity
                 # hnswlib cosine space: distance = 1 - cosine_similarity
-                # So: cosine_similarity = 1 - distance
-                cosine_distance = float(dist)
-                cosine_similarity = 1.0 - cosine_distance
-                # Clamp to valid range [-1, 1]
-                cosine_similarity = max(-1.0, min(1.0, cosine_similarity))
-                results.append((visitor_id, cosine_similarity, self.metadata[idx]))
+                similarity = max(-1.0, min(1.0, 1.0 - float(dist)))
+                results.append((visitor_id, similarity, self.metadata[idx]))
             
-            # Sort by similarity descending (higher is better)
             results.sort(key=lambda x: x[1], reverse=True)
             return results
+            
         except Exception as e:
             print(f"Error searching HNSW index: {e}")
             return []
     
     def remove_visitor(self, visitor_id: str) -> bool:
-        """Remove a visitor from the index."""
+        """Remove a visitor from the index (marks as removed in metadata)."""
         if visitor_id not in self.visitor_id_to_index:
             return False
         
         try:
             idx = self.visitor_id_to_index[visitor_id]
-            # HNSW doesn't support efficient removal, so we mark as removed in metadata
-            # For production, consider rebuilding index periodically
             del self.metadata[idx]
             del self.visitor_id_to_index[visitor_id]
             return True
@@ -334,7 +291,11 @@ class HNSWIndexManager:
             print(f"Error removing visitor from HNSW index: {e}")
             return False
     
-    def rebuild_from_database(self, get_visitors_func, extract_feature_func) -> int:
+    def rebuild_from_database(
+        self,
+        get_visitors_func: Callable[[], List[Dict]],
+        extract_feature_func: Callable[[Dict], Optional[np.ndarray]]
+    ) -> int:
         """
         Rebuild index from database visitors.
         
@@ -345,103 +306,67 @@ class HNSWIndexManager:
         Returns:
             Number of visitors indexed
         """
-        if not HNSW_AVAILABLE:
-            return 0
+        self.clear()
         
-        # Create new index
-        self.index = self._create_index()
-        self.metadata = {}
-        self.visitor_id_to_index = {}
-        self.next_index = 0
-
-        # Try to get visitors from database
         try:
             visitors = get_visitors_func()
         except Exception as e:
-            print("⚠ Falling back to using test_images instead of database because getting visitors from the database failed.")
-            print(f"Reason: {e}")
+            print(f"[WARNING] Failed to get visitors from database: {e}")
             visitors = []
         
-        batch_data = []
-        features_extracted = 0
-        features_failed = 0
+        if not visitors:
+            print("[WARNING] No visitors to index")
+            return 0
         
         print(f"Processing {len(visitors)} visitors for HNSW index...")
-        # Track failure reasons for debugging
-        failure_reasons = {}
-        sample_errors = []  # Store first few errors for debugging
+        batch_data = []
+        success_count = 0
+        fail_count = 0
         
-        for i, visitor_data in enumerate(visitors):
+        for visitor_data in visitors:
+            visitor_id = str(visitor_data.get('id', visitor_data.get('visitor_id', 'unknown')))
+            
             try:
                 feature = extract_feature_func(visitor_data)
-                if feature is not None:
-                    visitor_id = str(visitor_data.get('id', visitor_data.get('visitor_id', 'unknown')))
-                    # Validate feature dimension
-                    feature = np.asarray(feature).flatten()
-                    if feature.shape[0] != self.dimension:
-                        reason = f"Wrong dimension: {feature.shape[0]} (expected {self.dimension})"
-                        failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
-                        if len(sample_errors) < 3:
-                            sample_errors.append(f"Visitor {visitor_id}: {reason}")
-                        features_failed += 1
-                        continue
-                    # Only store minimal metadata (NOT base64Image to keep metadata small)
-                    minimal_metadata = {
-                        'firstName': visitor_data.get('firstName', ''),
-                        'lastName': visitor_data.get('lastName', ''),
-                    }
-                    batch_data.append((visitor_id, feature, minimal_metadata))
-                    features_extracted += 1
-                    if features_extracted <= 5:  # Log first few successes
-                        print(f"  ✓ Extracted {self.dimension}-dim feature for visitor {visitor_id}")
-                else:
-                    features_failed += 1
-                    if features_failed <= 5:  # Log first few failures
-                        visitor_id = str(visitor_data.get('id', visitor_data.get('visitor_id', 'unknown')))
-                        print(f"  ✗ Failed to extract feature for visitor {visitor_id} (returned None)")
+                if feature is None:
+                    fail_count += 1
+                    continue
+                
+                feature = np.asarray(feature).flatten()
+                if feature.shape[0] != self.dimension:
+                    fail_count += 1
+                    continue
+                
+                minimal_metadata = {
+                    'firstName': visitor_data.get('firstName', ''),
+                    'lastName': visitor_data.get('lastName', ''),
+                }
+                batch_data.append((visitor_id, feature, minimal_metadata))
+                success_count += 1
+                
             except Exception as e:
-                error_msg = str(e)
-                failure_reasons[error_msg] = failure_reasons.get(error_msg, 0) + 1
-                if len(sample_errors) < 3:
-                    visitor_id = str(visitor_data.get('id', visitor_data.get('visitor_id', 'unknown')))
-                    sample_errors.append(f"Visitor {visitor_id}: {error_msg}")
-                features_failed += 1
-                if features_failed <= 5:  # Log first few exceptions
-                    print(f"  ✗ Exception extracting feature: {e}")
-                continue
+                fail_count += 1
+                if fail_count <= 3:
+                    print(f"  [ERROR] Visitor {visitor_id}: {e}")
         
-        print(f"Extracted features: {features_extracted} successful, {features_failed} failed")
+        print(f"Feature extraction: {success_count} successful, {fail_count} failed")
         
-        # Print failure analysis if there were failures
-        if features_failed > 0 and len(failure_reasons) > 0:
-            print(f"\nFailure analysis (top reasons):")
-            sorted_reasons = sorted(failure_reasons.items(), key=lambda x: x[1], reverse=True)[:5]
-            for reason, count in sorted_reasons:
-                print(f"  - {reason}: {count} failures")
-            if sample_errors:
-                print(f"\nSample errors:")
-                for err in sample_errors[:3]:
-                    print(f"  - {err}")
-        
-        if len(batch_data) == 0:
-            print("⚠ No features extracted from visitors. Cannot build HNSW index.")
-            if features_failed > 0:
-                print("   Check the failure reasons above to diagnose the issue.")
+        if not batch_data:
+            print("[WARNING] No features extracted. Cannot build HNSW index.")
             return 0
         
         count = self.add_visitors_batch(batch_data)
         
         if count > 0:
             self._save_index()
-            print(f"✓ Rebuilt HNSW index with {count} visitors")
+            print(f"[OK] Rebuilt HNSW index with {count} visitors")
         
         return count
     
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> Dict[str, Any]:
         """Get index statistics."""
-        current_count = self.index.get_current_count() if self.index else 0
         return {
-            'total_vectors': current_count,
+            'total_vectors': self.index.get_current_count() if self.index else 0,
             'dimension': self.dimension,
             'index_type': 'HNSW',
             'm': self.m,
@@ -454,7 +379,7 @@ class HNSWIndexManager:
         """Save index to disk."""
         return self._save_index()
     
-    def clear(self):
+    def clear(self) -> None:
         """Clear the index."""
         self.index = self._create_index()
         self.metadata = {}
@@ -464,6 +389,4 @@ class HNSWIndexManager:
     @property
     def ntotal(self) -> int:
         """Get total number of vectors in index (for compatibility)."""
-        if self.index is None:
-            return 0
-        return self.index.get_current_count()
+        return self.index.get_current_count() if self.index else 0
