@@ -226,15 +226,21 @@ export function FaceRecognitionCamera() {
     frameCountRef.current = 0;
   }, []);
 
-  // Convert frame to base64
+  // Convert frame to base64 - resizes to fixed OUTPUT_WIDTH x OUTPUT_HEIGHT
   const frameToBase64 = useCallback((): string | null => {
     if (!videoRef.current || !canvasRef.current) return null;
 
     const ctx = canvasRef.current.getContext("2d");
     if (!ctx) return null;
 
-    ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-    return canvasRef.current.toDataURL("image/jpeg", 0.8).split(",")[1] ?? null;
+    // Draw video scaled to fixed output size (480x640)
+    // This ensures consistent image dimensions for face recognition
+    ctx.drawImage(
+      videoRef.current,
+      0, 0, videoRef.current.videoWidth, videoRef.current.videoHeight,  // source
+      0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT  // destination (fixed size)
+    );
+    return canvasRef.current.toDataURL("image/jpeg", 0.9).split(",")[1] ?? null;
   }, []);
 
   // Detect faces via API
