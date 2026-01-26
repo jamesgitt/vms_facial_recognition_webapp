@@ -323,8 +323,8 @@ def load_models():
     
     # Load ML models
     try:
-        face_detector = inference.get_face_detector(MODELS_PATH)
-        face_recognizer = inference.get_face_recognizer(MODELS_PATH)
+        face_detector = inference.get_face_detector()
+        face_recognizer = inference.get_face_recognizer()
         print("[OK] Models loaded")
     except Exception as e:
         print(f"[ERROR] Loading models: {e}")
