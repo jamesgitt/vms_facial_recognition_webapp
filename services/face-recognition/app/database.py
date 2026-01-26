@@ -179,6 +179,63 @@ def get_visitor_images_from_db(
             raise
 
 
+def get_visitors_with_features_only(
+    table_name: str = DEFAULT_TABLE_NAME,
+    visitor_id_column: str = DEFAULT_ID_COLUMN,
+    features_column: str = "facefeatures",
+    batch_size: int = 5000
+) -> List[Dict]:
+    """
+    Memory-efficient query that only loads visitors with pre-computed features.
+    Does NOT load base64 images to save memory.
+    
+    Args:
+        table_name: Name of the visitors table
+        visitor_id_column: Column name for visitor ID
+        features_column: Column name for face features
+        batch_size: Number of records to fetch per batch
+    
+    Returns:
+        List of dictionaries with id, firstName, lastName, and facefeatures
+    """
+    visitors = []
+    offset = 0
+    
+    with get_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        id_col = _quote_column(visitor_id_column)
+        feat_col = _quote_column(features_column)
+        
+        while True:
+            query = f"""
+                SELECT {id_col}, "firstName", "lastName", {feat_col}
+                FROM {table_name}
+                WHERE {feat_col} IS NOT NULL
+                ORDER BY {id_col}
+                LIMIT {batch_size} OFFSET {offset}
+            """
+            
+            try:
+                cursor.execute(query)
+                batch = cursor.fetchall()
+                
+                if not batch:
+                    break
+                
+                visitors.extend([dict(row) for row in batch])
+                offset += batch_size
+                
+                if len(batch) < batch_size:
+                    break
+                    
+            except psycopg2.Error as e:
+                logger.error(f"Database error: {e}")
+                raise
+    
+    logger.info(f"Retrieved {len(visitors)} visitors with features from database")
+    return visitors
+
+
 def get_visitor_details(
     visitor_id: str,
     table_name: str = DEFAULT_TABLE_NAME,

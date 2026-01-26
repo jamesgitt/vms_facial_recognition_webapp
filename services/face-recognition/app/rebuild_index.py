@@ -171,17 +171,31 @@ def check_database_connection() -> bool:
 
 
 def load_visitors() -> Optional[list]:
-    """Load visitors from database."""
+    """Load visitors from database (memory-optimized: only loads features, not images)."""
     print("\n2. Loading visitors from database...")
+    print("   (Memory-optimized: loading only pre-computed features, skipping images)")
     
     try:
-        visitors = database.get_visitor_images_from_db(
+        # Use optimized function that doesn't load images
+        visitors = database.get_visitors_with_features_only(
             table_name=DB_TABLE_NAME,
             visitor_id_column=DB_VISITOR_ID_COLUMN,
-            image_column=DB_IMAGE_COLUMN,
-            features_column=DB_FEATURES_COLUMN
+            features_column=DB_FEATURES_COLUMN,
+            batch_size=5000
         )
-        print(f"   [OK] Found {len(visitors)} visitors in database")
+        print(f"   [OK] Found {len(visitors)} visitors with pre-computed features")
+        
+        if not visitors:
+            print("   [WARNING] No visitors with features found.")
+            print("   [INFO] Falling back to loading images (this may use more memory)...")
+            # Fallback to old method if no pre-computed features
+            visitors = database.get_visitor_images_from_db(
+                table_name=DB_TABLE_NAME,
+                visitor_id_column=DB_VISITOR_ID_COLUMN,
+                image_column=DB_IMAGE_COLUMN,
+                features_column=DB_FEATURES_COLUMN
+            )
+            print(f"   [OK] Found {len(visitors)} visitors (with images)")
         
         if not visitors:
             print("   [WARNING] No visitors found. Index will be empty.")

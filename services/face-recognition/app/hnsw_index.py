@@ -25,9 +25,9 @@ except ImportError:
 INDEX_FILE = os.environ.get("HNSW_INDEX_FILE", "hnsw_visitor_index.bin")
 METADATA_FILE = os.environ.get("HNSW_METADATA_FILE", "hnsw_visitor_metadata.pkl")
 DEFAULT_DIMENSION = 128
-DEFAULT_M = 16
-DEFAULT_EF_CONSTRUCTION = 200
-DEFAULT_EF_SEARCH = 200
+DEFAULT_M = 32
+DEFAULT_EF_CONSTRUCTION = 400
+DEFAULT_EF_SEARCH = 400
 DEFAULT_MAX_ELEMENTS = int(os.environ.get("HNSW_MAX_ELEMENTS", "100000"))
 
 

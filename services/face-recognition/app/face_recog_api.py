@@ -69,8 +69,8 @@ except ImportError:
 # =============================================================================
 
 # Thresholds
-DEFAULT_SCORE_THRESHOLD = 0.6
-DEFAULT_COMPARE_THRESHOLD = 0.363
+DEFAULT_SCORE_THRESHOLD = 0.7
+DEFAULT_COMPARE_THRESHOLD = 0.550
 
 # Image limits
 MAX_IMAGE_SIZE = (1920, 1920)
