@@ -542,8 +542,16 @@ async def recognize_visitor_api(
     if image is None and not image_base64:
         raise HTTPException(status_code=400, detail="Image required")
     
-    img_np = image_loader.load_from_upload(image) if image else image_loader.load_image(image_base64, source_type="base64")
-    image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
+    try:
+        if image is not None:
+            img_np = image_loader.load_from_upload(image)
+        else:
+            img_np = image_loader.load_image(image_base64, source_type="base64")
+        image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to load image: {e}")
     
     faces = inference.detect_faces(img_np, return_landmarks=True)
     if not faces:
