@@ -1,100 +1,116 @@
 """
 Face Recognition API
-REST API for face detection and recognition using YuNet and Sface models.
 
-Implements endpoints for:
-- POST /api/v1/detect           : Detect faces in an image.
-- POST /api/v1/extract-features : Extract face features/vectors for detected faces.
-- POST /api/v1/compare          : Compare faces between two images.
-- POST /api/v1/recognize : Recognize visitor (PostgreSQL database is used if properly set up, otherwise falls back to test_images. If the database connection fails, the database module is missing, or data loading from DB fails, the service loads visitors from the test_images directory instead and uses it for recognition. This ensures face recognition can still work for testing/demo.)
-- GET  /api/v1/health           : Health check.
-- GET  /api/v1/models/status    : Model loading status.
-- GET  /api/v1/models/info      : Model metadata.
-- POST /api/v1/validate-image   : Validate image before processing.
-- WEBSOCKET /ws/realtime     : Real-time face detection/recognition via websocket.
+REST API for face detection and recognition using YuNet and SFace models.
+
+Endpoints:
+- POST /api/v1/detect           : Detect faces in an image
+- POST /api/v1/extract-features : Extract face feature vectors
+- POST /api/v1/compare          : Compare faces between two images
+- POST /api/v1/recognize        : Recognize visitor from database
+- GET  /api/v1/health           : Health check
+- GET  /api/v1/hnsw/status      : HNSW index status
+- GET  /models/status           : Model loading status
+- GET  /models/info             : Model metadata
+- POST /validate-image          : Validate image before processing
+- WS   /ws/realtime             : Real-time face detection via websocket
 """
 
 import os
 import io
 import json
 import base64
+import pickle
 import datetime
 from typing import List, Tuple, Optional, Any
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-
 from PIL import Image
 
-# Load environment variables from .env.test file if it exists
+# Load environment variables
 try:
     from dotenv import load_dotenv
     _SCRIPT_DIR = Path(__file__).parent
-    env_file = _SCRIPT_DIR.parent / ".env.test"
-    if env_file.exists():
-        load_dotenv(env_file)
-    else:
-        load_dotenv(_SCRIPT_DIR / ".env.test")
+    for env_path in [_SCRIPT_DIR.parent / ".env.test", _SCRIPT_DIR / ".env.test"]:
+        if env_path.exists():
+            load_dotenv(env_path)
+            break
 except ImportError:
-    # python-dotenv not installed, skip .env loading
     pass
 
-import inference  # This should be your inference.py containing detection/recognition
-
-# Image loading utilities (centralized)
+import inference
 import image_loader
 
-# Database integration (optional - falls back to test_images if not configured)
+# Optional database integration
 try:
     import database
     DB_AVAILABLE = True
 except ImportError:
     DB_AVAILABLE = False
-    print("Warning: database module not available. Using test images fallback.")
+    print("[WARNING] Database module not available. Using test images fallback.")
 
-# HNSW index for fast ANN search
+# Optional HNSW index
 try:
     from hnsw_index import HNSWIndexManager
     HNSW_AVAILABLE = True
 except ImportError:
     HNSW_AVAILABLE = False
     HNSWIndexManager = None
-    print("Warning: HNSW index manager not available. Using linear search.")
+    print("[WARNING] HNSW index not available. Using linear search.")
 
-# --- CONFIGURATION ---
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+# Thresholds
 DEFAULT_SCORE_THRESHOLD = 0.6
 DEFAULT_COMPARE_THRESHOLD = 0.363
-MAX_IMAGE_SIZE = 1920, 1920
-ALLOWED_FORMATS = {"jpg", "jpeg", "png"}
-# In Docker: working directory is /app/app, models are in /app/app/models
-# Use environment variable if set, otherwise default to "models" relative to working directory
+
+# Image limits
+MAX_IMAGE_SIZE = (1920, 1920)
+ALLOWED_FORMATS = frozenset({"jpg", "jpeg", "png"})
+
+# Paths
 MODELS_PATH = os.environ.get("MODELS_PATH", "models")
+VISITOR_IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "test_images")
+
+# CORS
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",") if os.environ.get("CORS_ORIGINS") else ["*"]
 
 # Database configuration
 USE_DATABASE = os.environ.get("USE_DATABASE", "false").lower() == "true"
 DB_TABLE_NAME = os.environ.get("DB_TABLE_NAME", 'public."Visitor"')
-DB_VISITOR_ID_COLUMN = os.environ.get("DB_VISITOR_ID_COLUMN", "id")  # Changed from visitor_id to id
+DB_VISITOR_ID_COLUMN = os.environ.get("DB_VISITOR_ID_COLUMN", "id")
 DB_IMAGE_COLUMN = os.environ.get("DB_IMAGE_COLUMN", "base64Image")
-DB_FEATURES_COLUMN = os.environ.get("DB_FEATURES_COLUMN", "facefeatures")  # Column to store extracted face features
-DB_ACTIVE_ONLY = os.environ.get("DB_ACTIVE_ONLY", "false").lower() == "true"  # Not used in minimal schema
-DB_VISITOR_LIMIT = int(os.environ.get("DB_VISITOR_LIMIT", "0")) or None  # 0 or None = no limit
+DB_FEATURES_COLUMN = os.environ.get("DB_FEATURES_COLUMN", "facefeatures")
+DB_ACTIVE_ONLY = os.environ.get("DB_ACTIVE_ONLY", "false").lower() == "true"
+DB_VISITOR_LIMIT = int(os.environ.get("DB_VISITOR_LIMIT", "0")) or None
 
-# --- GLOBAL TEST VISITORS SETUP ---
-# This section will load all reference visitors/faces from test_images on startup
 
-VISITOR_IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "test_images")
-VISITOR_FEATURES = {}  # Dict[str, Dict]: {visitor_name: {'feature': np.array, 'path': str}}
+# =============================================================================
+# GLOBAL STATE
+# =============================================================================
 
-# --- FASTAPI APP INITIALIZATION ---
+face_detector = None
+face_recognizer = None
+hnsw_index_manager = None
+VISITOR_FEATURES = {}  # {visitor_name: {'feature': np.array, 'path': str}}
+
+
+# =============================================================================
+# FASTAPI APP
+# =============================================================================
+
 app = FastAPI(
     title="Face Recognition API",
     version="1.0.0",
-    description="REST API for face detection and recognition using YuNet and Sface models.",
+    description="REST API for face detection and recognition using YuNet and SFace models.",
 )
 
 app.add_middleware(
@@ -105,258 +121,274 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- GLOBAL INFERENCE/MODEL LOADING ---
-face_detector = None
-face_recognizer = None
-hnsw_index_manager = None  # HNSW index for fast ANN search
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def extract_feature_from_visitor_data(visitor_data: dict) -> Optional[np.ndarray]:
+    """
+    Extract 128-dim feature from visitor data.
+    Priority: stored features > extract from image.
+    """
+    try:
+        visitor_id = visitor_data.get(DB_VISITOR_ID_COLUMN, 'unknown')
+        
+        # Try stored features first
+        stored_features = visitor_data.get(DB_FEATURES_COLUMN)
+        if stored_features:
+            try:
+                feature_bytes = base64.b64decode(stored_features)
+                feature_array = np.frombuffer(feature_bytes, dtype=np.float32)
+                if feature_array.shape[0] == 128:
+                    return feature_array.astype(np.float32)
+            except Exception as e:
+                print(f"[WARNING] Error decoding features for {visitor_id}: {e}")
+        
+        # Extract from image
+        base64_data = visitor_data.get(DB_IMAGE_COLUMN)
+        if not base64_data:
+            return None
+        
+        img_cv = image_loader.load_from_base64(base64_data)
+        faces = inference.detect_faces(img_cv, return_landmarks=True)
+        if not faces:
+            return None
+        
+        feature = inference.extract_face_features(img_cv, faces[0])
+        if feature is None:
+            return None
+        
+        feature = np.asarray(feature).flatten().astype(np.float32)
+        if feature.shape[0] != 128:
+            return None
+        
+        # Save to database
+        if USE_DATABASE and DB_AVAILABLE:
+            try:
+                database.update_visitor_features(
+                    visitor_id=str(visitor_id),
+                    features=feature,
+                    table_name=DB_TABLE_NAME,
+                    visitor_id_column=DB_VISITOR_ID_COLUMN,
+                    features_column=DB_FEATURES_COLUMN
+                )
+            except Exception:
+                pass
+        
+        return feature
+    except Exception as e:
+        print(f"[ERROR] Feature extraction failed for {visitor_data.get(DB_VISITOR_ID_COLUMN, 'unknown')}: {e}")
+        return None
+
+
+def decode_feature_from_base64(base64_data: str) -> Optional[np.ndarray]:
+    """Try to decode base64 as a 128-dim feature vector."""
+    try:
+        feature_bytes = base64.b64decode(base64_data)
+        
+        # Try pickle first
+        try:
+            feature_array = np.asarray(pickle.loads(feature_bytes)).flatten()
+        except Exception:
+            # Try raw float32 bytes
+            if len(feature_bytes) == 128 * 4:
+                feature_array = np.frombuffer(feature_bytes, dtype=np.float32)
+            else:
+                return None
+        
+        if feature_array.shape[0] == 128:
+            return feature_array.astype(np.float32)
+    except Exception:
+        pass
+    return None
+
+
+def init_database_connection() -> bool:
+    """Initialize database connection. Returns True if successful."""
+    global USE_DATABASE
+    
+    if not DB_AVAILABLE:
+        if USE_DATABASE:
+            print("[WARNING] Database module not available - using test_images")
+        USE_DATABASE = False
+        return False
+    
+    try:
+        print("Connecting to database...")
+        if database.test_connection():
+            print("[OK] Database connection successful")
+            database.init_connection_pool(min_conn=1, max_conn=5)
+            USE_DATABASE = True
+            return True
+        else:
+            print("[WARNING] Database connection failed - using test_images")
+            USE_DATABASE = False
+            return False
+    except Exception as e:
+        print(f"[WARNING] Database error: {e} - using test_images")
+        USE_DATABASE = False
+        return False
+
+
+def init_hnsw_index() -> Optional[Any]:
+    """Initialize HNSW index manager."""
+    if not HNSW_AVAILABLE or HNSWIndexManager is None:
+        return None
+    
+    try:
+        index_dir = os.environ.get("HNSW_INDEX_DIR", MODELS_PATH)
+        max_elements = int(os.environ.get("HNSW_MAX_ELEMENTS", "100000"))
+        manager = HNSWIndexManager(index_dir=index_dir, max_elements=max_elements)
+        print(f"[OK] HNSW index initialized (max_elements={max_elements})")
+        return manager
+    except Exception as e:
+        print(f"[WARNING] HNSW init error: {e}")
+        return None
+
+
+def load_visitors_from_database(manager: Optional[Any]) -> int:
+    """Load visitors from database and build HNSW index. Returns count."""
+    try:
+        visitors = database.get_visitor_images_from_db(
+            table_name=DB_TABLE_NAME,
+            visitor_id_column=DB_VISITOR_ID_COLUMN,
+            image_column=DB_IMAGE_COLUMN,
+            features_column=DB_FEATURES_COLUMN,
+            limit=DB_VISITOR_LIMIT,
+            active_only=DB_ACTIVE_ONLY
+        )
+        print(f"[OK] Found {len(visitors)} visitors in database")
+        
+        if manager and visitors:
+            print(f"Building HNSW index from {len(visitors)} visitors...")
+            count = manager.rebuild_from_database(
+                get_visitors_func=lambda: visitors,
+                extract_feature_func=extract_feature_from_visitor_data
+            )
+            if count > 0:
+                print(f"[OK] HNSW index built with {count} visitors")
+            return count
+        return len(visitors)
+    except Exception as e:
+        print(f"[ERROR] Loading visitors: {e}")
+        return 0
+
+
+def load_visitors_from_test_images(manager: Optional[Any]) -> int:
+    """Load visitors from test_images directory. Returns count."""
+    if not os.path.isdir(VISITOR_IMAGES_DIR):
+        return 0
+    
+    print(f"Loading visitors from {VISITOR_IMAGES_DIR}")
+    batch_data = []
+    
+    for fname in os.listdir(VISITOR_IMAGES_DIR):
+        if not fname.lower().endswith(tuple(ALLOWED_FORMATS)):
+            continue
+        
+        fpath = os.path.join(VISITOR_IMAGES_DIR, fname)
+        try:
+            img_cv = image_loader.load_from_path(fpath)
+            faces = inference.detect_faces(img_cv, return_landmarks=True)
+            if not faces:
+                continue
+            
+            feature = inference.extract_face_features(img_cv, faces[0])
+            if feature is not None:
+                visitor_name = os.path.splitext(fname)[0]
+                VISITOR_FEATURES[visitor_name] = {"feature": feature, "path": fpath}
+                if manager:
+                    batch_data.append((visitor_name, feature, {"path": fpath}))
+        except Exception as e:
+            print(f"[WARNING] Failed to process {fname}: {e}")
+    
+    print(f"[OK] Loaded {len(VISITOR_FEATURES)} visitors from test_images")
+    
+    if manager and batch_data:
+        count = manager.add_visitors_batch(batch_data)
+        if count > 0:
+            manager.save()
+            print(f"[OK] HNSW index built with {count} test_images visitors")
+    
+    return len(VISITOR_FEATURES)
+
+
+# =============================================================================
+# STARTUP
+# =============================================================================
 
 @app.on_event("startup")
 def load_models():
-    global face_detector, face_recognizer, VISITOR_FEATURES, hnsw_index_manager
+    """Initialize models and load visitor data on startup."""
+    global face_detector, face_recognizer, hnsw_index_manager, USE_DATABASE
+    
+    # Load ML models
     try:
         face_detector = inference.get_face_detector(MODELS_PATH)
         face_recognizer = inference.get_face_recognizer(MODELS_PATH)
+        print("[OK] Models loaded")
     except Exception as e:
-        print("Error loading models:", e)
+        print(f"[ERROR] Loading models: {e}")
         face_detector = None
         face_recognizer = None
     
-    # Initialize HNSW index manager
-    if HNSW_AVAILABLE and HNSWIndexManager is not None:
-        try:
-            # Get index configuration from environment variables
-            index_dir = os.environ.get("HNSW_INDEX_DIR", MODELS_PATH)
-            max_elements = int(os.environ.get("HNSW_MAX_ELEMENTS", "100000"))
-            hnsw_index_manager = HNSWIndexManager(
-                index_dir=index_dir,
-                max_elements=max_elements
-            )
-            print(f"✓ HNSW index manager initialized (max_elements={max_elements}, index_dir={index_dir})")
-        except Exception as e:
-            print(f"⚠ Error initializing HNSW index: {e}")
-            hnsw_index_manager = None
-    else:
-        hnsw_index_manager = None
-
-    # Initialize database connection - auto-detect if available
-    global USE_DATABASE
-    if DB_AVAILABLE:
-        # Try to connect to database even if USE_DATABASE is not explicitly set
-        # This allows automatic detection of Docker database when running locally
-        try:
-            print("Attempting to connect to database...")
-            if database.test_connection():
-                print("✓ Database connection successful - enabling database mode")
-                USE_DATABASE = True
-                # Initialize connection pool for better performance
-                database.init_connection_pool(min_conn=1, max_conn=5)
-            else:
-                if USE_DATABASE:
-                    # USE_DATABASE was explicitly set to true but connection failed
-                    print("⚠ Database connection failed, falling back to test_images")
-                    print("Falling back to test_images because the database connection could not be established (check DB host, credentials, or server status).")
-                else:
-                    # Database not explicitly enabled, silently fall back
-                    print("ℹ Database not available or not configured - using test_images")
-                USE_DATABASE = False
-        except Exception as e:
-            if USE_DATABASE:
-                print(f"⚠ Database initialization error: {e}, falling back to test_images")
-                print("Falling back to test_images because the database module was found but could not initialize a working connection. Likely a connection issue, bad pool config, or missing DB server dependency.")
-            else:
-                print(f"ℹ Database not available ({type(e).__name__}) - using test_images")
-            USE_DATABASE = False
-    elif USE_DATABASE:
-        # USE_DATABASE was set but database module is not available
-        print("⚠ Database module not available (psycopg2 not installed) - falling back to test_images")
-        USE_DATABASE = False
-
-    # Load visitor images from database or test_images (fallback)
+    # Initialize HNSW index
+    hnsw_index_manager = init_hnsw_index()
+    
+    # Initialize database
+    init_database_connection()
+    
+    # Load visitors
     VISITOR_FEATURES.clear()
     
-    def extract_feature_from_visitor_data(visitor_data):
-        """
-        Helper function to extract 128-dim feature from visitor data.
-        Priority:
-        1. Use faceFeatures column if available (stored features)
-        2. Extract from base64Image and save to faceFeatures column
-        """
-        try:
-            visitor_id = visitor_data.get(DB_VISITOR_ID_COLUMN, 'unknown')
-            
-            # First, check if faceFeatures column has stored features
-            stored_features = visitor_data.get(DB_FEATURES_COLUMN)
-            if stored_features:
-                try:
-                    # Decode base64-encoded feature vector
-                    feature_bytes = base64.b64decode(stored_features)
-                    feature_array = np.frombuffer(feature_bytes, dtype=np.float32)
-                    
-                    if feature_array.shape[0] == 128:
-                        return feature_array.astype(np.float32)
-                    else:
-                        print(f"⚠ Warning: Stored feature dimension is {feature_array.shape[0]}, expected 128 for visitor {visitor_id}")
-                except Exception as e:
-                    print(f"⚠ Error decoding stored features for visitor {visitor_id}: {e}")
-                    # Fall through to extract from image
-            
-            # No stored features, extract from image
-            base64_data = visitor_data.get(DB_IMAGE_COLUMN)
-            if not base64_data:
-                return None
-            
-            # Treat as base64-encoded image and extract 128-dim features using Sface
-            img_cv_db = image_loader.load_from_base64(base64_data)
-            db_faces = inference.detect_faces(img_cv_db, return_landmarks=True)
-            if db_faces is None or len(db_faces) == 0:
-                return None
-            
-            # Extract 128-dim feature using Sface model
-            db_feature = inference.extract_face_features(img_cv_db, db_faces[0])
-            if db_feature is None:
-                return None
-            
-            db_feature = np.asarray(db_feature).flatten().astype(np.float32)
-            if db_feature.shape[0] != 128:
-                print(f"⚠ Warning: Extracted feature dimension is {db_feature.shape[0]}, expected 128 for visitor {visitor_id}")
-                return None
-            
-            # Save extracted features to database faceFeatures column
-            if USE_DATABASE and DB_AVAILABLE:
-                try:
-                    database.update_visitor_features(
-                        visitor_id=str(visitor_id),
-                        features=db_feature,
-                        table_name=DB_TABLE_NAME,
-                        visitor_id_column=DB_VISITOR_ID_COLUMN,
-                        features_column=DB_FEATURES_COLUMN
-                    )
-                except Exception as e:
-                    print(f"⚠ Warning: Failed to save features to database for visitor {visitor_id}: {e}")
-            
-            return db_feature
-        except Exception as e:
-            print(f"Error extracting feature from visitor {visitor_data.get(DB_VISITOR_ID_COLUMN, 'unknown')}: {e}")
-            return None
-    
     if USE_DATABASE and DB_AVAILABLE:
-        # Database mode: Build HNSW index if available, otherwise use on-the-fly extraction
-        print("✓ Using database for visitor recognition")
-        try:
-            visitors = database.get_visitor_images_from_db(
-                table_name=DB_TABLE_NAME,
-                visitor_id_column=DB_VISITOR_ID_COLUMN,
-                image_column=DB_IMAGE_COLUMN,
-                features_column=DB_FEATURES_COLUMN,
-                limit=DB_VISITOR_LIMIT,
-                active_only=DB_ACTIVE_ONLY
-            )
-            print(f"✓ Database has {len(visitors)} visitors available for recognition")
-            
-            # Build HNSW index if available
-            if hnsw_index_manager and len(visitors) > 0:
-                print(f"Building HNSW index from {len(visitors)} database visitors (this may take a while)...")
-                def get_visitors():
-                    return visitors
-                
-                count = hnsw_index_manager.rebuild_from_database(
-                    get_visitors_func=get_visitors,
-                    extract_feature_func=extract_feature_from_visitor_data
-                )
-                if count > 0:
-                    print(f"✓ HNSW index built with {count} visitors (fast ANN search enabled)")
-                else:
-                    print("⚠ HNSW index build failed, falling back to linear search")
-        except Exception as e:
-            print(f"⚠ Error loading visitors from database: {e}, falling back to test_images")
-            print("Falling back to test_images because an error occurred loading visitor images from the database (could be a bad query, missing table/column, or unexpected DB exception).")
+        print("[OK] Using database for visitor recognition")
+        if load_visitors_from_database(hnsw_index_manager) == 0:
+            print("[WARNING] No visitors loaded from database - falling back to test_images")
             USE_DATABASE = False
     
-    # Fallback to test_images if database not available or failed
     if not USE_DATABASE or not DB_AVAILABLE:
-        # Print fallback reason
-        if not DB_AVAILABLE:
-            print("Falling back to test_images because the database module is not available (maybe not installed or import failed).")
-        else:
-            print("Falling back to test_images because database mode is not enabled or previous database step failed.")
-        if os.path.isdir(VISITOR_IMAGES_DIR):
-            print(f"Loading gallery visitors from {VISITOR_IMAGES_DIR}")
-            batch_data = []
-            
-            for fname in os.listdir(VISITOR_IMAGES_DIR):
-                if not fname.lower().endswith(tuple(ALLOWED_FORMATS)):
-                    continue
-                fpath = os.path.join(VISITOR_IMAGES_DIR, fname)
-                try:
-                    # Use image_loader to load image from file path
-                    img_cv = image_loader.load_from_path(fpath)
+        load_visitors_from_test_images(hnsw_index_manager)
 
-                    # Detect face(s)
-                    faces = inference.detect_faces(img_cv, return_landmarks=True)
-                    if faces is None or len(faces) == 0:
-                        print(f"No face found in {fname}")
-                        continue
-                    # Take only first face for that file
-                    feature = inference.extract_face_features(img_cv, faces[0])
-                    if feature is not None:
-                        visitor_name = os.path.splitext(fname)[0]
-                        VISITOR_FEATURES[visitor_name] = {
-                            "feature": feature,
-                            "path": fpath
-                        }
-                        
-                        # Add to HNSW index if available
-                        if hnsw_index_manager:
-                            batch_data.append((visitor_name, feature, {"path": fpath}))
-                except Exception as e:
-                    print(f"Failed to process {fname}: {e}")
-            
-            print(f"Loaded {len(VISITOR_FEATURES)} visitors from test_images")
-            
-            # Build HNSW index from test_images if available
-            if hnsw_index_manager and batch_data:
-                print(f"Building HNSW index from {len(batch_data)} test_images visitors...")
-                count = hnsw_index_manager.add_visitors_batch(batch_data)
-                if count > 0:
-                    hnsw_index_manager.save()
-                    print(f"✓ HNSW index built with {count} test_images visitors (fast ANN search enabled)")
-                else:
-                    print("⚠ HNSW index build failed for test_images, using linear search.")
 
-# --- PYDANTIC SCHEMAS ---
-class DetectionRequest(BaseModel):
-    image_base64: Optional[str] = None
-    score_threshold: Optional[float] = Field(DEFAULT_SCORE_THRESHOLD, ge=0, le=1)
-    return_landmarks: Optional[bool] = False
+# =============================================================================
+# PYDANTIC SCHEMAS
+# =============================================================================
 
-class BoundingBox(BaseModel):
-    x: int
-    y: int
-    w: int
-    h: int
+class DetectRequest(BaseModel):
+    image: str
+    score_threshold: float = DEFAULT_SCORE_THRESHOLD
+    return_landmarks: bool = False
 
-class DetectionResponse(BaseModel):     
-    faces: List[List[float]]  # List of [x, y, w, h] bounding boxes
-    count: int  # Number of faces detected
+class CompareRequest(BaseModel):
+    image1: str
+    image2: str
+    threshold: float = DEFAULT_COMPARE_THRESHOLD
 
-class FeatureExtractionRequest(BaseModel):
-    image_base64: Optional[str] = None
-    return_face_count: Optional[bool] = False
+class DetectionResponse(BaseModel):
+    faces: List[List[float]]
+    count: int
 
 class FeatureExtractionResponse(BaseModel):
     features: List[List[float]]
     num_faces: int
-
-class RecognitionRequest(BaseModel):
-    image1_base64: Optional[str] = None
-    image2_base64: Optional[str] = None
-    threshold: Optional[float] = Field(DEFAULT_COMPARE_THRESHOLD, ge=0, le=1)
 
 class RecognitionResponse(BaseModel):
     similarity_score: float
     is_match: bool
     features1: Optional[List[float]] = None
     features2: Optional[List[float]] = None
+
+class VisitorRecognitionResponse(BaseModel):
+    visitor_id: Optional[str] = None
+    confidence: Optional[float] = None
+    matched: bool = False
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    visitor: Optional[str] = None  # Legacy
+    match_score: Optional[float] = None  # Legacy
+    matches: Optional[list] = None
 
 class ModelStatusResponse(BaseModel):
     loaded: bool
@@ -378,73 +410,46 @@ class HNSWStatusResponse(BaseModel):
     visitors_indexed: int
     details: Optional[Any] = None
 
-class ValidateImageRequest(BaseModel):
-    image_base64: Optional[str] = None
-
 class ValidateImageResponse(BaseModel):
     valid: bool
     format: Optional[str]
     size: Optional[Tuple[int, int]]
 
-class VisitorRecognitionResponse(BaseModel):
-    visitor_id: Optional[str] = None  # Database visitor ID
-    confidence: Optional[float] = None  # Match confidence score
-    matched: bool = False  # Whether a match was found above threshold
-    firstName: Optional[str] = None  # Visitor's first name
-    lastName: Optional[str] = None  # Visitor's last name
-    # Legacy fields for backward compatibility
-    visitor: Optional[str] = None  # Deprecated: use visitor_id
-    match_score: Optional[float] = None  # Deprecated: use confidence
-    matches: Optional[list] = None  # Additional match details (optional)
 
-# --- IMAGE PROCESSING UTILITIES ---
-# Use centralized image_loader module instead of duplicate functions
-# All image loading now goes through image_loader for consistency
+# =============================================================================
+# ERROR HANDLERS
+# =============================================================================
 
-# --- ERROR HANDLING ---
 @app.exception_handler(ValueError)
 async def valueerror_handler(request, exc):
-    return JSONResponse(
-        status_code=400,
-        content={"error": str(exc), "type": "ValueError"},
-    )
+    return JSONResponse(status_code=400, content={"error": str(exc), "type": "ValueError"})
 
 @app.exception_handler(FileNotFoundError)
 async def filenotfounderror_handler(request, exc):
-    return JSONResponse(
-        status_code=500,
-        content={"error": str(exc), "type": "FileNotFoundError"},
-    )
+    return JSONResponse(status_code=500, content={"error": str(exc), "type": "FileNotFoundError"})
 
-# --- API ROUTES ---
+
+# =============================================================================
+# API ROUTES
+# =============================================================================
 
 @app.get("/health", tags=["Health"])
+@app.get("/api/v1/health", tags=["Health"])
 def health():
     return {"status": "ok", "time": datetime.datetime.utcnow().isoformat() + "Z"}
 
-@app.get("/api/v1/health", tags=["Health"])
-def health_v1():
-    return {"status": "ok", "time": datetime.datetime.utcnow().isoformat() + "Z"}
-
-class DetectRequest(BaseModel):
-    image: str
-    score_threshold: float = DEFAULT_SCORE_THRESHOLD
-    return_landmarks: bool = False
-
-class CompareRequest(BaseModel):
-    image1: str
-    image2: str
-    threshold: float = DEFAULT_COMPARE_THRESHOLD
 
 @app.post("/api/v1/detect", response_model=DetectionResponse, tags=["Detection"])
-async def detect_faces_api_v1(request: DetectRequest):
-    """Detect faces endpoint that accepts JSON with base64 image"""
+async def detect_faces_api(request: DetectRequest):
+    """Detect faces in an image."""
     try:
-        # Use image_loader to handle base64 (including data URL format)
         img_np = image_loader.load_image(request.image, source_type="base64")
         image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
+        
         results = inference.detect_faces(
-            img_np, score_threshold=request.score_threshold, return_landmarks=request.return_landmarks
+            img_np,
+            score_threshold=request.score_threshold,
+            return_landmarks=request.return_landmarks
         )
         
         if results is None:
@@ -453,89 +458,81 @@ async def detect_faces_api_v1(request: DetectRequest):
         faces_list = []
         for r in results:
             if request.return_landmarks:
-                # If landmarks requested, return full array
                 faces_list.append(r.tolist() if hasattr(r, 'tolist') else list(r))
             else:
-                # Just return bounding box [x, y, w, h]
                 faces_list.append([float(r[0]), float(r[1]), float(r[2]), float(r[3])])
+        
         return DetectionResponse(faces=faces_list, count=len(faces_list))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid image data: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Processing error: {e}")
+
 
 @app.post("/api/v1/extract-features", response_model=FeatureExtractionResponse, tags=["Features"])
 async def extract_features_api(
     image: UploadFile = File(None),
     image_base64: str = Form(None),
 ):
+    """Extract face features from an image."""
     if image is None and not image_base64:
-        raise HTTPException(status_code=400, detail="An image (file or base64) must be provided.")
-    # Load image using unified image_loader
-    if image is not None:
-        img_np = image_loader.load_from_upload(image)
-    else:
-        img_np = image_loader.load_image(image_base64, source_type="base64")
-    # Validate image size
+        raise HTTPException(status_code=400, detail="Image required")
+    
+    img_np = image_loader.load_from_upload(image) if image else image_loader.load_image(image_base64, source_type="base64")
     image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
     
-    # Detect faces first
     faces = inference.detect_faces(img_np, return_landmarks=True)
-    if faces is None or len(faces) == 0:
+    if not faces:
         return FeatureExtractionResponse(features=[], num_faces=0)
     
-    # Extract features for each detected face
     features_list = []
     for face_row in faces:
         feature = inference.extract_face_features(img_np, face_row)
         if feature is not None:
             features_list.append(feature.tolist() if hasattr(feature, 'tolist') else list(feature))
     
-    return FeatureExtractionResponse(
-        features=features_list,
-        num_faces=len(features_list)
-    )
+    return FeatureExtractionResponse(features=features_list, num_faces=len(features_list))
+
 
 @app.post("/api/v1/compare", response_model=RecognitionResponse, tags=["Recognition"])
-async def compare_faces_api_v1(request: CompareRequest):
-    """Compare faces endpoint that accepts JSON with base64 images"""
+async def compare_faces_api(request: CompareRequest):
+    """Compare faces between two images."""
     try:
-        # Use image_loader to handle base64 (including data URL format)
         img1 = image_loader.load_image(request.image1, source_type="base64")
         img2 = image_loader.load_image(request.image2, source_type="base64")
         
         image_loader.validate_image_size((img1.shape[1], img1.shape[0]), MAX_IMAGE_SIZE)
         image_loader.validate_image_size((img2.shape[1], img2.shape[0]), MAX_IMAGE_SIZE)
         
-        # Detect faces in both images
         faces1 = inference.detect_faces(img1, return_landmarks=True)
         faces2 = inference.detect_faces(img2, return_landmarks=True)
         
-        if faces1 is None or len(faces1) == 0:
-            raise HTTPException(status_code=400, detail="No face detected in image1")
-        if faces2 is None or len(faces2) == 0:
-            raise HTTPException(status_code=400, detail="No face detected in image2")
+        if not faces1:
+            raise HTTPException(status_code=400, detail="No face in image1")
+        if not faces2:
+            raise HTTPException(status_code=400, detail="No face in image2")
         
-        # Extract features from first face in each image
         feature1 = inference.extract_face_features(img1, faces1[0])
         feature2 = inference.extract_face_features(img2, faces2[0])
         
         if feature1 is None or feature2 is None:
-            raise HTTPException(status_code=400, detail="Failed to extract features from one or both images")
+            raise HTTPException(status_code=400, detail="Failed to extract features")
         
-        # Compare features
         score, is_match = inference.compare_face_features(feature1, feature2, threshold=request.threshold)
         
         return RecognitionResponse(
             similarity_score=float(score),
             is_match=bool(is_match),
-            features1=None,  # Don't return features for security/performance
+            features1=None,
             features2=None,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid image data: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Processing error: {e}")
+
 
 @app.post("/api/v1/recognize", response_model=VisitorRecognitionResponse, tags=["Recognition"])
 async def recognize_visitor_api(
@@ -543,94 +540,47 @@ async def recognize_visitor_api(
     image_base64: str = Form(None),
     threshold: float = Form(DEFAULT_COMPARE_THRESHOLD),
 ):
-    """
-    Recognize visitor by matching the input image against database visitors.
-    Returns visitor_id, confidence, and matched status.
-    Falls back to test_images if database is not configured.
-
-    Note:
-    Falls back to the test_images directory if:
-    - The database connection cannot be established (connection refused, bad credentials, no DB server running),
-    - The database module is not available (e.g. not installed in the environment or ImportError),
-    - A database query or loading error occurs,
-    - Database integration is not enabled/configured.
-    """
+    """Recognize visitor by matching against database."""
     if image is None and not image_base64:
-        raise HTTPException(status_code=400, detail="An image (file or base64) must be provided.")
+        raise HTTPException(status_code=400, detail="Image required")
     
-    # Load received image using unified image_loader
-    if image is not None:
-        img_np = image_loader.load_from_upload(image)
-    else:
-        img_np = image_loader.load_image(image_base64, source_type="base64")
-    
-    # Validate image size
+    img_np = image_loader.load_from_upload(image) if image else image_loader.load_image(image_base64, source_type="base64")
     image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
-
-    # Detect faces in input
+    
     faces = inference.detect_faces(img_np, return_landmarks=True)
-    if faces is None or len(faces) == 0:
-        return VisitorRecognitionResponse(
-            visitor_id=None, confidence=None, matched=False,
-            visitor=None, match_score=None, matches=[]
-        )
-
-    # Extract feature for first detected face
+    if not faces:
+        return VisitorRecognitionResponse(matched=False, matches=[])
+    
     query_feature = inference.extract_face_features(img_np, faces[0])
     if query_feature is None:
-        return VisitorRecognitionResponse(
-            visitor_id=None, confidence=None, matched=False,
-            visitor=None, match_score=None, matches=[]
-        )
-
+        return VisitorRecognitionResponse(matched=False, matches=[])
+    
     results = []
     best_match = None
     best_score = 0.0
-
-    # Use HNSW ANN search if available, otherwise fall back to linear search
-    if hnsw_index_manager and hnsw_index_manager.index and hnsw_index_manager.ntotal > 0:
-        # Fast ANN search using HNSW
-        try:
-            # Search for top 50 candidates using HNSW
-            ann_results = hnsw_index_manager.search(query_feature, k=50)
-            
-            for visitor_id, cosine_similarity, metadata in ann_results:
-                # cosine_similarity from HNSW is already in range [-1, 1]
-                # OpenCV's compare_face_features returns values in similar range
-                # Use cosine_similarity directly as match_score
-                score_float = float(cosine_similarity)
-                is_match = score_float >= threshold
-                
-                # Get firstName and lastName from metadata
-                firstName = metadata.get('firstName') if metadata else None
-                lastName = metadata.get('lastName') if metadata else None
-                
-                results.append({
-                    "visitor_id": visitor_id,
-                    "match_score": score_float,
-                    "is_match": bool(is_match),
-                    "firstName": firstName,
-                    "lastName": lastName,
-                    **metadata  # Include any additional metadata
-                })
-                
-                # Track best match
-                if is_match and score_float > best_score:
-                    best_score = score_float
-                    best_match = {
-                        "visitor_id": visitor_id,
-                        "match_score": score_float,
-                        "is_match": True,
-                        "firstName": firstName,
-                        "lastName": lastName
-                    }
-        except Exception as e:
-            print(f"HNSW search error: {e}, falling back to linear search")
-            # Fall through to linear search
     
-    # Fallback: Linear search (original implementation)
-    if len(results) == 0:
-        # Database mode: Query and extract features on-the-fly
+    # Try HNSW search first
+    if hnsw_index_manager and hnsw_index_manager.ntotal > 0:
+        try:
+            ann_results = hnsw_index_manager.search(query_feature, k=50)
+            for visitor_id, similarity, metadata in ann_results:
+                is_match = similarity >= threshold
+                result = {
+                    "visitor_id": visitor_id,
+                    "match_score": float(similarity),
+                    "is_match": is_match,
+                    "firstName": metadata.get('firstName'),
+                    "lastName": metadata.get('lastName'),
+                }
+                results.append(result)
+                if is_match and similarity > best_score:
+                    best_score = similarity
+                    best_match = result
+        except Exception as e:
+            print(f"[WARNING] HNSW search error: {e}")
+    
+    # Fallback: Linear search
+    if not results:
         if USE_DATABASE and DB_AVAILABLE:
             try:
                 visitors = database.get_visitor_images_from_db(
@@ -644,112 +594,61 @@ async def recognize_visitor_api(
                 for visitor_data in visitors:
                     visitor_id = str(visitor_data.get(DB_VISITOR_ID_COLUMN))
                     base64_image = visitor_data.get(DB_IMAGE_COLUMN)
-                    firstName = visitor_data.get('firstName')
-                    lastName = visitor_data.get('lastName')
-                    
                     if not base64_image:
                         continue
                     
-                    try:
-                        # Try to decode as 128-dim feature vector first
-                        db_feature = None
+                    # Try as feature vector first
+                    db_feature = decode_feature_from_base64(base64_image)
+                    
+                    # Otherwise extract from image
+                    if db_feature is None:
                         try:
-                            feature_bytes = base64.b64decode(base64_image)
-                            try:
-                                # Try as pickled numpy array
-                                import pickle
-                                feature_array = pickle.loads(feature_bytes)
-                                feature_array = np.asarray(feature_array).flatten()
-                            except:
-                                # Try as raw float32 bytes
-                                if len(feature_bytes) == 128 * 4:  # 128-dim feature
-                                    feature_array = np.frombuffer(feature_bytes, dtype=np.float32)
-                                else:
-                                    raise ValueError("Not a feature vector")
-                            
-                            # Check if it's a 128-dim feature vector
-                            if feature_array.shape[0] == 128:
-                                db_feature = feature_array.astype(np.float32)
-                        except Exception:
-                            # Not a feature vector, treat as image
-                            pass
-                        
-                        # If not a feature vector, extract from image
-                        if db_feature is None:
                             img_cv_db = image_loader.load_from_base64(base64_image)
                             db_faces = inference.detect_faces(img_cv_db, return_landmarks=True)
-                            if db_faces is None or len(db_faces) == 0:
+                            if not db_faces:
                                 continue
-                            
                             db_feature = inference.extract_face_features(img_cv_db, db_faces[0])
                             if db_feature is None:
                                 continue
                             db_feature = np.asarray(db_feature).flatten().astype(np.float32)
                             if db_feature.shape[0] != 128:
                                 continue
-                        
-                        # Compare features
-                        score, is_match = inference.compare_face_features(query_feature, db_feature, threshold=threshold)
-                        score_float = float(score)
-                        
-                        results.append({
-                            "visitor_id": visitor_id,
-                            "match_score": score_float,
-                            "is_match": bool(is_match),
-                            "firstName": firstName,
-                            "lastName": lastName,
-                        })
-                        
-                        # Track best match
-                        if is_match and score_float > best_score:
-                            best_score = score_float
-                            best_match = {
-                                "visitor_id": visitor_id,
-                                "match_score": score_float,
-                                "is_match": True,
-                                "firstName": firstName,
-                                "lastName": lastName
-                            }
-                            
-                    except Exception as e:
-                        print(f"Error processing visitor {visitor_id}: {e}")
-                        continue
-                        
+                        except Exception:
+                            continue
+                    
+                    score, is_match = inference.compare_face_features(query_feature, db_feature, threshold=threshold)
+                    result = {
+                        "visitor_id": visitor_id,
+                        "match_score": float(score),
+                        "is_match": bool(is_match),
+                        "firstName": visitor_data.get('firstName'),
+                        "lastName": visitor_data.get('lastName'),
+                    }
+                    results.append(result)
+                    if is_match and score > best_score:
+                        best_score = score
+                        best_match = result
             except Exception as e:
-                print(f"Database query error: {e}")
-                print("Falling back to test_images because error occurred during database query or feature extraction step.")
-                # Fall through to test_images fallback
-    
-    # Fallback: Use pre-loaded test_images features
-    if not USE_DATABASE or not DB_AVAILABLE or len(results) == 0:
-        print("Using test_images fallback for face recognition because either database is not enabled, database module is missing, or all recognition/database attempts failed.")
-        for visitor_name, visitor in VISITOR_FEATURES.items():
-            db_feature = visitor.get("feature")
-            score, is_match = inference.compare_face_features(query_feature, db_feature, threshold=threshold)
-            score_float = float(score)
-            
-            results.append({
-                "visitor": visitor_name,  # Legacy: name instead of ID
-                "visitor_id": visitor_name,  # Use name as ID for test_images
-                "match_score": score_float,
-                "is_match": bool(is_match),
-                "filename": os.path.basename(visitor.get("path", ""))
-            })
-            
-            # Track best match
-            if is_match and score_float > best_score:
-                best_score = score_float
-                best_match = {
+                print(f"[WARNING] Database query error: {e}")
+        
+        # Fallback: test_images
+        if not results:
+            for visitor_name, visitor in VISITOR_FEATURES.items():
+                db_feature = visitor.get("feature")
+                score, is_match = inference.compare_face_features(query_feature, db_feature, threshold=threshold)
+                result = {
                     "visitor_id": visitor_name,
-                    "visitor": visitor_name,  # Legacy
-                    "match_score": score_float,
-                    "is_match": True
+                    "visitor": visitor_name,
+                    "match_score": float(score),
+                    "is_match": bool(is_match),
                 }
+                results.append(result)
+                if is_match and score > best_score:
+                    best_score = score
+                    best_match = result
     
-    # Sort by match score descending
     results.sort(key=lambda x: x.get("match_score", 0), reverse=True)
     
-    # Prepare response
     if best_match and best_match.get("is_match"):
         return VisitorRecognitionResponse(
             visitor_id=best_match.get("visitor_id"),
@@ -757,105 +656,56 @@ async def recognize_visitor_api(
             matched=True,
             firstName=best_match.get("firstName"),
             lastName=best_match.get("lastName"),
-            visitor=best_match.get("visitor"),  # Legacy
-            match_score=best_match.get("match_score"),  # Legacy
-            matches=results[:10]  # Top 10 matches
+            visitor=best_match.get("visitor"),
+            match_score=best_match.get("match_score"),
+            matches=results[:10]
         )
-    else:
-        return VisitorRecognitionResponse(
-            visitor_id=None,
-            confidence=None,
-            matched=False,
-            firstName=None,
-            lastName=None,
-            visitor=None,
-            match_score=None,
-            matches=results[:10] if results else []
-        )
-
-@app.post("/batch-detect", tags=["Batch"])
-async def batch_detect_api(
-    images: List[UploadFile] = File(...),
-    score_threshold: float = Form(DEFAULT_SCORE_THRESHOLD),
-):
-    responses = []
-    for imgfile in images:
-        try:
-            img_np = image_loader.load_from_upload(imgfile)
-            image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
-            results = inference.detect_faces(
-                img_np, score_threshold=score_threshold, return_landmarks=False
-            )
-            faces = []
-            for det in results.get("faces", []):
-                x, y, w, h = det["box"]
-                faces.append(BoundingBox(x=x, y=y, w=w, h=h))
-            responses.append({
-                "faces": [f.dict() for f in faces],
-                "num_faces": len(faces),
-                "image_size": [img_np.shape[1], img_np.shape[0]]
-            })
-        except Exception as e:
-            responses.append({"error": str(e), "filename": getattr(imgfile, "filename", None)})
-    return responses
+    
+    return VisitorRecognitionResponse(matched=False, matches=results[:10] if results else [])
 
 
 @app.get("/models/status", response_model=ModelStatusResponse, tags=["Models"])
 async def model_status():
-    loaded = (face_detector is not None) and (face_recognizer is not None)
-    detail = {
-        "face_detector": str(type(face_detector)),
-        "face_recognizer": str(type(face_recognizer)),
-    } if loaded else None
-    return ModelStatusResponse(loaded=loaded, details=detail)
+    loaded = face_detector is not None and face_recognizer is not None
+    return ModelStatusResponse(
+        loaded=loaded,
+        details={"face_detector": str(type(face_detector)), "face_recognizer": str(type(face_recognizer))} if loaded else None
+    )
+
 
 @app.get("/models/info", response_model=ModelInfoResponse, tags=["Models"])
 async def model_info():
-    # Return basic model information
-    info = {
-        "detector": {
+    return ModelInfoResponse(
+        detector={
             "type": "YuNet",
             "model_path": inference.YUNET_PATH,
             "input_size": inference.YUNET_INPUT_SIZE,
             "loaded": face_detector is not None
         },
-        "recognizer": {
-            "type": "Sface",
+        recognizer={
+            "type": "SFace",
             "model_path": inference.SFACE_PATH,
             "similarity_threshold": inference.SFACE_SIMILARITY_THRESHOLD,
             "loaded": face_recognizer is not None
         }
-    }
-    return ModelInfoResponse(detector=info.get("detector"), recognizer=info.get("recognizer"))
+    )
+
 
 @app.get("/api/v1/hnsw/status", response_model=HNSWStatusResponse, tags=["HNSW"])
 async def hnsw_status():
-    """
-    Get HNSW index status and statistics.
-    Returns information about whether HNSW is available, initialized, and its current state.
-    """
-    global hnsw_index_manager
-    
+    """Get HNSW index status."""
     if not HNSW_AVAILABLE:
         return HNSWStatusResponse(
-            available=False,
-            initialized=False,
-            total_vectors=0,
-            dimension=128,
-            index_type="HNSW",
-            visitors_indexed=0,
-            details={"error": "HNSW library not available. Install with: pip install hnswlib"}
+            available=False, initialized=False, total_vectors=0,
+            dimension=128, index_type="HNSW", visitors_indexed=0,
+            details={"error": "HNSW not available"}
         )
     
     if hnsw_index_manager is None:
         return HNSWStatusResponse(
-            available=True,
-            initialized=False,
-            total_vectors=0,
-            dimension=128,
-            index_type="HNSW",
-            visitors_indexed=0,
-            details={"error": "HNSW index manager not initialized"}
+            available=True, initialized=False, total_vectors=0,
+            dimension=128, index_type="HNSW", visitors_indexed=0,
+            details={"error": "HNSW not initialized"}
         )
     
     try:
@@ -874,47 +724,41 @@ async def hnsw_status():
         )
     except Exception as e:
         return HNSWStatusResponse(
-            available=True,
-            initialized=False,
-            total_vectors=0,
-            dimension=128,
-            index_type="HNSW",
-            visitors_indexed=0,
+            available=True, initialized=False, total_vectors=0,
+            dimension=128, index_type="HNSW", visitors_indexed=0,
             details={"error": str(e)}
         )
+
 
 @app.post("/validate-image", response_model=ValidateImageResponse, tags=["Utility"])
 async def validate_image_api(image: UploadFile = File(None), image_base64: str = Form(None)):
     if image is None and not image_base64:
-        raise HTTPException(status_code=400, detail="An image (file or base64) must be provided.")
+        raise HTTPException(status_code=400, detail="Image required")
+    
     try:
-        # Load image using image_loader
         if image is not None:
-            img_np = image_loader.load_from_upload(image)
-            # Get format from original file if available
-            img = Image.open(io.BytesIO(image.file.read()))
-            image.file.seek(0)  # Reset file pointer
+            contents = image.file.read()
+            image.file.seek(0)
+            img = Image.open(io.BytesIO(contents))
         else:
-            img_np = image_loader.load_image(image_base64, source_type="base64")
-            # Decode to get format info
             img_bytes = base64.b64decode(image_base64.split(',', 1)[1] if image_base64.startswith('data:') else image_base64)
             img = Image.open(io.BytesIO(img_bytes))
         
         fmt = (img.format or "").lower()
         size = img.size
-        valid = (fmt in ALLOWED_FORMATS) and (size[0] <= MAX_IMAGE_SIZE[0] and size[1] <= MAX_IMAGE_SIZE[1])
+        valid = fmt in ALLOWED_FORMATS and size[0] <= MAX_IMAGE_SIZE[0] and size[1] <= MAX_IMAGE_SIZE[1]
         return ValidateImageResponse(valid=valid, format=fmt, size=size)
-    except Exception as e:
+    except Exception:
         return ValidateImageResponse(valid=False, format=None, size=None)
 
-# --- WEBSOCKET FOR REAL-TIME FACE DETECTION/RECOGNITION ---
+
+# =============================================================================
+# WEBSOCKET
+# =============================================================================
+
 @app.websocket("/ws/realtime")
 async def websocket_face_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time face detection/recognition.
-    Expected message format: { "type": "frame", "image": "<base64>", ... }
-    Response: { "type": "results", faces: [...], count: <number> }
-    """
+    """WebSocket for real-time face detection."""
     await websocket.accept()
     try:
         while True:
@@ -922,72 +766,53 @@ async def websocket_face_endpoint(websocket: WebSocket):
             try:
                 req = json.loads(data)
             except json.JSONDecodeError:
-                await websocket.send_json({
-                    "type": "error",
-                    "error": "Invalid JSON input"
-                })
+                await websocket.send_json({"type": "error", "error": "Invalid JSON"})
                 continue
-
-            # --- Only support { type: 'frame', image: ... } format (per docs) ---
-            req_type = req.get("type")
-            if req_type != "frame":
-                await websocket.send_json({
-                    "type": "error",
-                    "error": "Invalid request type. Must be { type: 'frame', image: ... }"
-                })
+            
+            if req.get("type") != "frame":
+                await websocket.send_json({"type": "error", "error": "Invalid request type"})
                 continue
-
+            
             image_b64 = req.get("image")
-            score_threshold = float(req.get("score_threshold", DEFAULT_SCORE_THRESHOLD))
-            return_landmarks = bool(req.get("return_landmarks", False))
             if not image_b64:
-                await websocket.send_json({
-                    "type": "error",
-                    "error": "Missing required field: image (base64)"
-                })
+                await websocket.send_json({"type": "error", "error": "Missing image"})
                 continue
-
+            
             try:
                 img_np = image_loader.load_image(image_b64, source_type="base64")
                 image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
+                
+                score_threshold = float(req.get("score_threshold", DEFAULT_SCORE_THRESHOLD))
+                return_landmarks = bool(req.get("return_landmarks", False))
+                
                 dets = inference.detect_faces(img_np, score_threshold=score_threshold, return_landmarks=return_landmarks)
+                
                 faces_list = []
                 if dets:
                     for r in dets:
-                        # r shape: [x, y, w, h, score, ...] (landmarks after 5th field)
-                        bbox = [float(r[0]), float(r[1]), float(r[2]), float(r[3])]
-                        score = float(r[4]) if len(r) > 4 else None
-                        face_obj = {"bbox": bbox}
-                        if score is not None:
-                            face_obj["confidence"] = score
-                        if return_landmarks and len(r) > 9:
-                            # YuNet returns landmarks after 5th index: [x, y, w, h, score, l0x, l0y, ... l4x, l4y]
-                            landmarks = [float(x) for x in r[5:15]]
-                            face_obj["landmarks"] = landmarks
+                        face_obj = {"bbox": [float(r[0]), float(r[1]), float(r[2]), float(r[3])]}
+                        if len(r) > 4:
+                            face_obj["confidence"] = float(r[4])
+                        if return_landmarks and len(r) > 14:
+                            face_obj["landmarks"] = [float(x) for x in r[5:15]]
                         faces_list.append(face_obj)
-                response = {
-                    "type": "results",
-                    "faces": faces_list,
-                    "count": len(faces_list)
-                }
+                
+                await websocket.send_json({"type": "results", "faces": faces_list, "count": len(faces_list)})
             except Exception as ex:
-                response = {
-                    "type": "error",
-                    "error": str(ex)
-                }
-
-            await websocket.send_json(response)
+                await websocket.send_json({"type": "error", "error": str(ex)})
     except WebSocketDisconnect:
-        # Client disconnected; cleanup if needed
         pass
     except Exception as e:
-        # Catch all, try to tell client if possible
         try:
             await websocket.send_json({"type": "error", "error": str(e)})
         except Exception:
             pass
 
-# --- MAIN ENTRYPOINT (for direct run, optional) ---
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("face_recog_api:app", host="0.0.0.0", port=8000, reload=True)
