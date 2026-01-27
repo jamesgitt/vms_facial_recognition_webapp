@@ -1,60 +1,50 @@
-# Cosine Similarity in Face Recognition
+# Guide to Cosine Similarity for Face Recognition
 
 ## Overview
 
-The Sface model uses **cosine similarity** to compare face feature vectors. This guide explains how it works and how to interpret the scores.
+Cosine similarity is the core metric for comparing face feature vectors in the VMS backend, specifically via the OpenCV SFace model. This guide details how cosine similarity works, how it's used in our stack, and best practices for threshold tuning.
 
 ## What is Cosine Similarity?
 
-Cosine similarity measures the **angle** between two vectors in high-dimensional space. For face recognition:
-- Each face is represented as a **512-dimensional feature vector**
-- Cosine similarity measures how "similar" the directions of two vectors are
-- Range: **-1.0 to 1.0** (for normalized vectors, typically **0.0 to 1.0**)
+Cosine similarity quantifies the angle between two vectors in high-dimensional space:
 
-## How It's Calculated
+- Each face is extracted as a **512-dimensional feature vector** using the SFace ONNX model
+- Similar vectors (smaller angles) mean more similar faces
+- Range for normalized features: **0.0** (completely different) to **1.0** (identical)
 
-### Mathematical Formula
+## How Cosine Similarity is Calculated
+
+**Mathematical Formula:**
 
 ```
 cosine_similarity = (A · B) / (||A|| × ||B||)
 ```
-
 Where:
-- `A · B` = dot product of vectors A and B
-- `||A||` = magnitude (length) of vector A
-- `||B||` = magnitude (length) of vector B
+- `A · B`: Dot product of vectors A and B
+- `||A||` and `||B||`: Euclidean norms of A and B
 
-### In OpenCV Sface
-
-OpenCV's `FaceRecognizerSF.match()` with `FR_COSINE` mode calculates:
+**In This Project (with OpenCV SFace):**
 
 ```python
 score = recognizer.match(feature1, feature2, cv2.FaceRecognizerSF_FR_COSINE)
 ```
+A higher `score` means faces are more likely to be the same person.
 
-This returns a **similarity score** where:
-- **Higher score = More similar faces**
-- **Lower score = Less similar faces**
+## Score Ranges & Interpretation
 
-## Score Interpretation
+| Score  | Meaning                  | Guidance         |
+| ------ | ------------------------ | ---------------- |
+| 0.0–0.3  | Unrelated faces           | Always NO MATCH  |
+| 0.3–0.5  | Some similarity (borderline cases possible) | Use threshold |
+| 0.5–0.7  | Strong similarity         | Likely MATCH     |
+| 0.7–1.0  | Very high similarity      | High-confidence MATCH |
 
-### Score Range
+### Default Matching Threshold
 
-For Sface model, typical scores are:
-- **0.0 - 0.3**: Very different faces (different people)
-- **0.3 - 0.5**: Somewhat similar (might be same person, but uncertain)
-- **0.5 - 0.7**: Similar faces (likely same person)
-- **0.7 - 1.0**: Very similar faces (same person with high confidence)
+- **score ≥ 0.363**: **MATCH** (same person, as per SFace default)
+- **score < 0.363**: **NO MATCH** (different people)
 
-### Default Threshold
-
-The Sface model uses a **default threshold of 0.363**:
-- **score ≥ 0.363**: Considered a **MATCH** (same person)
-- **score < 0.363**: Considered **NO MATCH** (different person)
-
-## Determining Matches
-
-### Basic Matching Logic
+## Python Matching Logic (as used in backend services)
 
 ```python
 def compare_faces(feature1, feature2, threshold=0.363):
@@ -63,114 +53,63 @@ def compare_faces(feature1, feature2, threshold=0.363):
     return score, is_match
 ```
 
-### Example Scores
+**Example Score Table:**  
+| Score | Interpretation            | Match?         |
+|-------|--------------------------|----------------|
+| 0.85  | Very high similarity     | ✅ MATCH       |
+| 0.65  | High similarity          | ✅ MATCH       |
+| 0.45  | Moderate similarity      | ✅ MATCH (above threshold) |
+| 0.363 | At threshold             | ✅ MATCH (borderline) |
+| 0.35  | Just below threshold     | ❌ NO MATCH    |
+| 0.25  | Low similarity           | ❌ NO MATCH    |
+| 0.10  | Unrelated                | ❌ NO MATCH    |
 
-| Score | Interpretation | Match? |
-|-------|---------------|--------|
-| 0.85 | Very high similarity | ✅ **MATCH** |
-| 0.65 | High similarity | ✅ **MATCH** |
-| 0.45 | Moderate similarity | ✅ **MATCH** (above threshold) |
-| 0.363 | Exactly at threshold | ✅ **MATCH** (borderline) |
-| 0.35 | Just below threshold | ❌ **NO MATCH** |
-| 0.25 | Low similarity | ❌ **NO MATCH** |
-| 0.10 | Very low similarity | ❌ **NO MATCH** |
+## Adjusting the Threshold in VMS
 
-## Adjusting the Threshold
+Thresholds can be raised or lowered depending on application needs:
 
-### Lower Threshold (e.g., 0.3)
-- **More lenient**: Accepts more matches
-- **Higher false positive rate**: Might match different people
-- **Use when**: You want to catch all possible matches, even if some are wrong
+- **Lower (e.g. 0.3):** More matches, increased risk of false positives
+- **Higher (e.g. 0.5):** Fewer matches, higher accuracy, may omit valid matches
 
-### Higher Threshold (e.g., 0.5)
-- **More strict**: Only accepts very similar faces
-- **Lower false positive rate**: More confident matches
-- **Use when**: You want high accuracy, even if you miss some matches
-
-### Recommended Thresholds
-
+**Recommended thresholds for this project:**
 ```python
-# Very strict (high accuracy, might miss some matches)
-threshold = 0.5
-
-# Default Sface threshold (balanced)
-threshold = 0.363
-
-# Lenient (catches more matches, might have false positives)
-threshold = 0.3
+threshold = 0.5   # Strict (high security)
+threshold = 0.363 # Default (balanced, as in SFace)
+threshold = 0.3   # Lenient (catch-all, higher false positives)
 ```
 
-## Real-World Examples
+## Real-World Recognition Examples
 
-### Example 1: Same Person, Different Conditions
+- **Same person – different lighting:**  
+  Score: 0.72 → ✅ MATCH (high confidence)
+- **Same person – similar angle:**  
+  Score: 0.58 → ✅ MATCH (good confidence)
+- **Different people:**  
+  Score: 0.28 → ❌ NO MATCH
+- **Borderline quality (noise/blur):**  
+  Score: 0.38 → ✅ MATCH (but double-check, near threshold)
 
-```
-Person A (registration photo) vs Person A (camera, different lighting)
-Score: 0.72
-Result: ✅ MATCH (high confidence)
-```
+## Factors That Affect Cosine Similarity Scores
 
-### Example 2: Same Person, Similar Conditions
+- **High scores:** Same identity, good lighting, similar angle, high image quality, recent photos
+- **Low scores:** Different faces, or same person under different angles, with poor image quality, occlusions, aging, or changes such as facial hair/glasses
 
-```
-Person A (registration) vs Person A (camera, similar lighting)
-Score: 0.58
-Result: ✅ MATCH (good confidence)
-```
+## Implementation Best Practices for VMS
 
-### Example 3: Different People
-
-```
-Person A (registration) vs Person B (camera)
-Score: 0.28
-Result: ❌ NO MATCH (correctly rejected)
-```
-
-### Example 4: Borderline Case
-
-```
-Person A (registration) vs Person A (camera, poor quality)
-Score: 0.38
-Result: ✅ MATCH (with threshold=0.363, but close call)
-```
-
-## Factors Affecting Scores
-
-### Higher Scores (Better Matches)
-- ✅ Same person
-- ✅ Similar lighting conditions
-- ✅ Similar face angle/pose
-- ✅ Good image quality
-- ✅ Recent photos (less aging)
-
-### Lower Scores (Worse Matches)
-- ❌ Different people
-- ❌ Very different lighting
-- ❌ Different face angles
-- ❌ Poor image quality
-- ❌ Significant time difference (aging)
-- ❌ Facial changes (glasses, beard, makeup)
-
-## Best Practices
-
-### 1. Use Multiple Images for Registration
+**1. Register Multiple Photos Per Person**
 ```python
-# Extract features from 5-10 images
-# Average the features for better accuracy
-avg_feature = np.mean([feature1, feature2, feature3, ...], axis=0)
+avg_feature = np.mean([feature1, feature2, ...], axis=0)  # Improves robustness
 ```
 
-### 2. Adjust Threshold Based on Use Case
-```python
-# High-security: Use higher threshold (0.5)
-# General access: Use default (0.363)
-# Lenient matching: Use lower threshold (0.3)
-```
+**2. Set Threshold Per Use-Case**
 
-### 3. Consider Confidence Levels
+- High security area: 0.5 or above
+- General access: default 0.363
+- Flexible/QA/testing: 0.3
+
+**3. Handle Confidence Levels in UI/Logic**
 ```python
 score, is_match = compare_faces(feature1, feature2, threshold=0.363)
-
 if score >= 0.7:
     confidence = "Very High"
 elif score >= 0.5:
@@ -181,40 +120,30 @@ else:
     confidence = "Low"
 ```
 
-### 4. Handle Edge Cases
+**4. Address Borderline Cases in User Experience**
 ```python
-# If score is very close to threshold, request additional verification
+# Suggest additional scan if borderline
 if 0.35 <= score < 0.363:
-    # Borderline case - might want to ask for re-scan
     return "UNCERTAIN", score
 ```
 
-## Code Example
+## End-to-End Example (for VMS Python ML Backend)
 
 ```python
 import cv2
 import numpy as np
 
-# Initialize Sface recognizer
 recognizer = cv2.FaceRecognizerSF.create(
     model='face_recognition_sface_2021dec.onnx',
     config='',
     backend_id=cv2.dnn.DNN_BACKEND_DEFAULT,
-    target_id=cv2.dnn.DNN_TARGET_CPU
+    target_id=cv2.dnn.DNN_TARGET_CPU,
 )
 
-# Extract features from two faces
 feature1 = recognizer.feature(face1_image)
 feature2 = recognizer.feature(face2_image)
+score = recognizer.match(feature1, feature2, cv2.FaceRecognizerSF_FR_COSINE)
 
-# Calculate cosine similarity
-score = recognizer.match(
-    feature1,
-    feature2,
-    cv2.FaceRecognizerSF_FR_COSINE
-)
-
-# Determine match
 threshold = 0.363
 is_match = score >= threshold
 
@@ -235,9 +164,7 @@ else:
 
 ## Summary
 
-- **Cosine similarity** measures how similar two face feature vectors are
-- **Score range**: 0.0 (different) to 1.0 (identical)
-- **Default threshold**: 0.363 for Sface model
-- **Higher score = More similar faces**
-- **score ≥ threshold = MATCH**
-- Adjust threshold based on your accuracy vs. coverage needs
+- Cosine similarity is the official vector metric for SFace-based recognition in VMS
+- **Default threshold 0.363**; adjust as needed for security or tolerance
+- Use multiple images per person for stronger embedding
+- Always support threshold/score-driven feedback in UX for edge cases
