@@ -14,10 +14,10 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-# Script directory
-_SCRIPT_DIR = Path(__file__).parent
+# Set up the script directory
+_SCRIPT_DIR = Path(__file__).parent.resolve()
 
-# Load environment variables
+# Load environment variables in priority order: ../.env, ./.env
 try:
     from dotenv import load_dotenv
     for env_path in [_SCRIPT_DIR.parent / ".env", _SCRIPT_DIR / ".env"]:
@@ -40,78 +40,63 @@ try:
 except ImportError:
     from app.face_recog_api import app
 
-# Model file names (shared constants)
+# Model file constants
 YUNET_FILENAME = 'face_detection_yunet_2023mar.onnx'
 SFACE_FILENAME = 'face_recognition_sface_2021dec.onnx'
 
-
 def get_models_path() -> Path:
-    """Get the models directory path."""
-    return Path(os.environ.get("MODELS_PATH", str(_SCRIPT_DIR / "models")))
-
+    """Return the path to the models directory."""
+    return Path(os.environ.get("MODELS_PATH", _SCRIPT_DIR / "models"))
 
 def check_models_exist(models_path: Optional[Path] = None) -> bool:
     """
-    Check if required ONNX model files exist.
-    
-    Args:
-        models_path: Path to models directory. If None, uses default.
-    
-    Returns:
-        True if all models exist, False otherwise.
+    Return True if required ONNX model files exist, False otherwise.
     """
     if models_path is None:
         models_path = get_models_path()
-    
+
     yunet_path = models_path / YUNET_FILENAME
     sface_path = models_path / SFACE_FILENAME
-    
+
     if not yunet_path.exists():
         print(f"[ERROR] YuNet model not found at {yunet_path}")
         return False
-    
+
     if not sface_path.exists():
         print(f"[ERROR] SFace model not found at {sface_path}")
         return False
-    
+
     print(f"[OK] Models found in {models_path}")
     return True
-
 
 def download_models_if_needed(models_path: Path) -> bool:
     """
     Attempt to download models if they don't exist.
-    
-    Returns:
-        True if models are available after this call, False otherwise.
+    Return True if models are available; otherwise, False.
     """
     if check_models_exist(models_path):
         return True
-    
+
     print("\nModels not found. Attempting to download...\n")
-    
-    try:
-        from download_models import main as download_main
-        download_main()
-        return check_models_exist(models_path)
-    except ImportError:
-        pass
-    
-    try:
-        from app.download_models import main as download_main
-        download_main()
-        return check_models_exist(models_path)
-    except ImportError:
-        pass
-    
+    downloader_variants = [
+        ("download_models", "main"),
+        ("app.download_models", "main"),
+    ]
+    for module_name, func_name in downloader_variants:
+        try:
+            mod = __import__(module_name, fromlist=[func_name])
+            getattr(mod, func_name)()
+            return check_models_exist(models_path)
+        except ImportError:
+            continue
+
     print("[ERROR] Cannot import download_models module.")
     print(f"\nTo download models manually, run:")
     print(f"  python {_SCRIPT_DIR / 'download_models.py'}")
     return False
 
-
 def create_parser() -> argparse.ArgumentParser:
-    """Create and return the argument parser."""
+    """Create CLI argument parser."""
     parser = argparse.ArgumentParser(
         description="Face Recognition ML Microservice",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -123,48 +108,47 @@ Examples:
   python main.py --workers 4              # Production mode
         """
     )
-    
+
     parser.add_argument(
         "--host",
         type=str,
         default=os.environ.get("API_HOST", "0.0.0.0"),
-        help="Host to bind to (default: API_HOST env or 0.0.0.0)"
+        help="Host to bind to (default: API_HOST env or 0.0.0.0)",
     )
     parser.add_argument(
         "--port",
         type=int,
         default=int(os.environ.get("API_PORT", "8000")),
-        help="Port to bind to (default: API_PORT env or 8000)"
+        help="Port to bind to (default: API_PORT env or 8000)",
     )
     parser.add_argument(
         "--reload",
         action="store_true",
-        help="Enable auto-reload for development"
+        help="Enable auto-reload for development",
     )
     parser.add_argument(
         "--workers",
         type=int,
         default=1,
-        help="Number of worker processes (default: 1)"
+        help="Number of worker processes (default: 1)",
     )
     parser.add_argument(
         "--log-level",
         type=str,
         default="info",
         choices=["critical", "error", "warning", "info", "debug", "trace"],
-        help="Log level (default: info)"
+        help="Log level (default: info)",
     )
     parser.add_argument(
         "--skip-model-check",
         action="store_true",
-        help="Skip checking if models exist before starting"
+        help="Skip checking if models exist before starting",
     )
-    
+
     return parser
 
-
 def print_startup_info(host: str, port: int, workers: int, reload: bool, log_level: str) -> None:
-    """Print server startup information."""
+    """Print summary of server startup parameters."""
     print("\n" + "=" * 60)
     print("Face Recognition ML Microservice")
     print("=" * 60)
@@ -179,9 +163,8 @@ def print_startup_info(host: str, port: int, workers: int, reload: bool, log_lev
     print(f"Health: http://{host}:{port}/api/v1/health")
     print("\nPress Ctrl+C to stop\n")
 
-
 def run_server(host: str, port: int, workers: int, reload: bool, log_level: str) -> None:
-    """Configure and run the uvicorn server."""
+    """Start the uvicorn server with the desired settings."""
     config = uvicorn.Config(
         app=app,
         host=host,
@@ -194,29 +177,28 @@ def run_server(host: str, port: int, workers: int, reload: bool, log_level: str)
     server = uvicorn.Server(config)
     server.run()
 
-
 def main() -> int:
     """
     Main entry point for the Face Recognition API service.
-    
+
     Returns:
-        Exit code (0 for success, 1 for failure)
+        0 = success, 1 = failure
     """
     parser = create_parser()
     args = parser.parse_args()
-    
+
     # Check models exist (unless skipped)
     if not args.skip_model_check:
         if not download_models_if_needed(get_models_path()):
             return 1
-    
-    # Validate workers and reload combination
+
+    # Check compatibility: reload mode with >1 worker is not supported
     if args.reload and args.workers > 1:
         print("[WARNING] --reload not compatible with multiple workers. Using 1 worker.")
         args.workers = 1
-    
+
     print_startup_info(args.host, args.port, args.workers, args.reload, args.log_level)
-    
+
     try:
         run_server(args.host, args.port, args.workers, args.reload, args.log_level)
         return 0
@@ -226,7 +208,6 @@ def main() -> int:
     except Exception as e:
         print(f"\n[ERROR] Failed to start server: {e}")
         return 1
-
 
 if __name__ == "__main__":
     sys.exit(main())
