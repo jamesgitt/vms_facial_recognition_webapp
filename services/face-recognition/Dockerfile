@@ -38,9 +38,9 @@ ENV MODELS_PATH=/app/app/models
 # Expose both HTTP (8000) and HTTPS (8443) ports
 EXPOSE 8000 8443
 
-# Healthcheck: Use HTTPS endpoint if running with SSL
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD python -c "import urllib.request, ssl; ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE; urllib.request.urlopen('https://localhost:8443/api/v1/health', context=ctx)" || exit 1
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')" || exit 1
 
 # Default command - can be overridden by docker-compose
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

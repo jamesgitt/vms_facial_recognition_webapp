@@ -35,6 +35,10 @@ class APISettings(BaseSettings):
     host: str = Field(default="0.0.0.0", description="API server host")
     port: int = Field(default=8000, description="API server port")
     title: str = Field(default="Face Recognition API", description="API title")
+    description: str = Field(
+        default="REST API for face detection and recognition using YuNet and SFace models.",
+        description="API description for OpenAPI docs"
+    )
     version: str = Field(default="1.0.0", description="API version")
     debug: bool = Field(default=False, description="Enable debug mode")
 
@@ -48,13 +52,30 @@ class CORSSettings(BaseSettings):
         default="*",
         description="Comma-separated list of allowed origins"
     )
+    allow_credentials: bool = Field(
+        default=True,
+        description="Allow credentials in CORS requests"
+    )
+    allow_methods: List[str] = Field(
+        default=["*"],
+        description="Allowed HTTP methods"
+    )
+    allow_headers: List[str] = Field(
+        default=["*"],
+        description="Allowed HTTP headers"
+    )
     
     @property
-    def origins_list(self) -> List[str]:
+    def origins(self) -> List[str]:
         """Parse CORS origins into a list."""
         if not self.cors_origins or self.cors_origins == "*":
             return ["*"]
         return [origin.strip() for origin in self.cors_origins.split(",")]
+    
+    @property
+    def origins_list(self) -> List[str]:
+        """Alias for origins property."""
+        return self.origins
 
 
 class ModelSettings(BaseSettings):

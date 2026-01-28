@@ -31,7 +31,7 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8000
     command: >
-      uvicorn face_recog_api:app 
+      uvicorn main:app 
       --host 0.0.0.0 
       --port 8000
     healthcheck:
