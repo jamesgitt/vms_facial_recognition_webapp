@@ -11,8 +11,8 @@ from .feature_extraction import (
     extract_feature_from_visitor_data,
     decode_feature_from_base64,
 )
-from .comparison import compare_two_faces, ComparisonResult
-from .recognition import recognize_visitor, RecognitionResult
+from .comparison import compare_two_faces, compare_from_base64, ComparisonResult
+from .recognition import recognize_visitor, recognize_from_image, RecognitionResult
 from .visitor_loader import (
     load_visitors_from_database,
     load_visitors_from_test_images,
@@ -29,9 +29,11 @@ __all__ = [
     "decode_feature_from_base64",
     # Comparison
     "compare_two_faces",
+    "compare_from_base64",
     "ComparisonResult",
     # Recognition
     "recognize_visitor",
+    "recognize_from_image",
     "RecognitionResult",
     # Visitor loading
     "load_visitors_from_database",

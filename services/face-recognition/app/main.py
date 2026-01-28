@@ -12,6 +12,7 @@ import sys
 import argparse
 from pathlib import Path
 from contextlib import asynccontextmanager
+from typing import Optional
 
 # Set up the script directory first
 _SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -157,7 +158,7 @@ def get_models_path() -> Path:
     return Path(settings.models.models_path)
 
 
-def check_models_exist(models_path: Path = None) -> bool:
+def check_models_exist(models_path: Optional[Path] = None) -> bool:
     """
     Return True if required ONNX model files exist, False otherwise.
     """
@@ -243,9 +244,9 @@ Examples:
     parser.add_argument(
         "--log-level",
         type=str,
-        default=settings.logging.level.lower(),
+        default=settings.logging.log_level.lower(),
         choices=["critical", "error", "warning", "info", "debug", "trace"],
-        help=f"Log level (default: {settings.logging.level.lower()})",
+        help=f"Log level (default: {settings.logging.log_level.lower()})",
     )
     parser.add_argument(
         "--skip-model-check",

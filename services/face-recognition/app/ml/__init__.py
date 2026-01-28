@@ -7,7 +7,7 @@ Provides face detection, recognition, and indexing capabilities using:
 - HNSW: Approximate nearest neighbor search for fast matching
 
 Usage:
-    from app.ml import (
+    from ml import (
         detect_faces,
         extract_face_features,
         compare_face_features,
@@ -33,7 +33,7 @@ Usage:
 """
 
 # Inference functions (face detection and recognition)
-from app.ml.inference import (
+from .inference import (
     detect_faces,
     extract_face_features,
     compare_face_features,
@@ -51,7 +51,7 @@ from app.ml.inference import (
 )
 
 # HNSW index manager
-from app.ml.hnsw_index import (
+from .hnsw_index import (
     HNSWIndexManager,
     DEFAULT_DIMENSION,
     DEFAULT_M,
@@ -62,7 +62,7 @@ from app.ml.hnsw_index import (
 )
 
 # Model download utility
-from app.ml.download_models import (
+from .download_models import (
     download_model,
 )
 

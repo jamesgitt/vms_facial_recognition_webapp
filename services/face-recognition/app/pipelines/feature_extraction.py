@@ -66,7 +66,7 @@ def extract_features_from_image(
         
         features = []
         for face_row in faces_to_process:
-            feature = inference.extract_face_features(image, face_row)
+            feature = inference.extract_face_features(image, np.asarray(face_row))
             if feature is not None:
                 features.append(np.asarray(feature).flatten().astype(np.float32))
         
@@ -106,10 +106,10 @@ def extract_single_feature(
             faces = inference.detect_faces(image, return_landmarks=True)
             if faces is None or len(faces) == 0:
                 return None
-            face_row = faces[0]
+            face_row = np.asarray(faces[0])
         
         # Extract feature
-        feature = inference.extract_face_features(image, face_row)
+        feature = inference.extract_face_features(image, np.asarray(face_row))
         if feature is None:
             return None
         

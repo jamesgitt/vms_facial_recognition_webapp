@@ -99,11 +99,13 @@ def detect_faces_in_image(
             if return_landmarks and len(r) > 14:
                 landmarks = [float(x) for x in r[5:15]]
             
+            # raw_data is only valid when return_landmarks=True (returns ndarray)
+            raw_data = np.asarray(r) if return_landmarks else None
             faces.append(FaceDetection(
                 bbox=bbox,
                 confidence=confidence,
                 landmarks=landmarks,
-                raw_data=r if return_landmarks else None,
+                raw_data=raw_data,
             ))
         
         return DetectionResult(

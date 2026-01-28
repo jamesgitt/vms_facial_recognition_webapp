@@ -13,7 +13,7 @@ from datetime import datetime
 
 
 class VisitorBase(TypedDict, total=False):
-    """Base visitor record structure."""
+    """Base visitor record structure - all fields optional."""
     id: str
     firstName: Optional[str]
     lastName: Optional[str]
@@ -24,20 +24,34 @@ class VisitorBase(TypedDict, total=False):
     createdAt: Optional[datetime]
     updatedAt: Optional[datetime]
 
-class VisitorWithImage(VisitorBase):
-    """Visitor record with image data."""
-    base64Image: str  # Required for this type
+
+class VisitorWithImage(TypedDict):
+    """Visitor record with required image data."""
+    id: str
+    firstName: Optional[str]
+    lastName: Optional[str]
+    base64Image: str  # Required
 
 
-class VisitorWithFeatures(VisitorBase):
-    """Visitor record with pre-computed face features."""
-    faceFeatures: str  # Required for this type
+class VisitorWithFeatures(TypedDict):
+    """Visitor record with required face features."""
+    id: str
+    firstName: Optional[str]
+    lastName: Optional[str]
+    faceFeatures: str  # Required
 
 
-class VisitorFull(VisitorBase):
+class VisitorFull(TypedDict, total=False):
     """Complete visitor record with all fields."""
+    id: str
+    firstName: Optional[str]
+    lastName: Optional[str]
+    fullName: Optional[str]
     base64Image: str
+    imageUrl: Optional[str]
     faceFeatures: Optional[str]
+    createdAt: Optional[datetime]
+    updatedAt: Optional[datetime]
 
 
 # Type aliases for common use cases

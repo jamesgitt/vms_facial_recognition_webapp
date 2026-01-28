@@ -18,7 +18,7 @@ from typing import Optional, List, Tuple, Union
 import cv2
 import numpy as np
 
-from logger import get_logger
+from core.logger import get_logger
 logger = get_logger(__name__)
 
 
@@ -149,7 +149,7 @@ def detect_faces(
         return faces_rescaled
     
     bboxes = faces_rescaled[:, :4].astype(int)
-    return [tuple(bbox) for bbox in bboxes]
+    return [(int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])) for bbox in bboxes]
 
 
 def extract_face_features(frame: np.ndarray, face_row: np.ndarray) -> Optional[np.ndarray]:

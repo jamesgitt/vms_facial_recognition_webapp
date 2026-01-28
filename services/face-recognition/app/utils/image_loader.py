@@ -31,7 +31,7 @@ except ImportError:
     REQUESTS_AVAILABLE = False
 
 try:
-    import database
+    from db import database
     DB_AVAILABLE = True
 except ImportError:
     DB_AVAILABLE = False

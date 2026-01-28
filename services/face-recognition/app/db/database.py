@@ -3,9 +3,9 @@ Database Module (Backward Compatibility Layer)
 
 This module maintains backward compatibility with existing code that imports
 `database` directly. New code should use explicit imports from:
-- app.db.connection for connection management
-- app.db.queries for query functions
-- app.db.models for type definitions
+- db.connection for connection management
+- db.queries for query functions
+- db.models for type definitions
 
 Usage (legacy):
     import database
@@ -13,12 +13,12 @@ Usage (legacy):
     database.get_visitor_images_from_db()
 
 Usage (recommended):
-    from app.db.connection import get_connection
-    from app.db.queries import get_visitor_images_from_db
+    from db.connection import get_connection
+    from db.queries import get_visitor_images_from_db
 """
 
 # Re-export everything from the new modular structure
-from app.db.connection import (
+from .connection import (
     get_db_connection,
     get_connection,
     init_connection_pool,
@@ -26,7 +26,7 @@ from app.db.connection import (
     close_connection_pool,
 )
 
-from app.db.queries import (
+from .queries import (
     get_visitor_images_from_db,
     get_visitors_with_features_only,
     get_visitor_details,

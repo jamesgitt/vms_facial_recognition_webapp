@@ -13,14 +13,7 @@ from contextlib import contextmanager
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 
-try:
-    from app.core.logger import get_logger
-except ImportError:
-    # Fallback for scripts that run from different paths
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    from app.core.logger import get_logger
+from core.logger import get_logger
 
 # Load environment variables
 try:

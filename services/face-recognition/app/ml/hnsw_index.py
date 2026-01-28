@@ -11,7 +11,7 @@ import traceback
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any, Callable
 
-from logger import get_logger
+from core.logger import get_logger
 logger = get_logger(__name__)
 
 import numpy as np
@@ -229,8 +229,8 @@ class HNSWIndexManager:
             self.index.add_items(features_array, indices_array)
             
             for meta in pending_metadata:
-                idx = meta.pop('idx')
-                self.metadata[idx] = meta
+                idx = meta.pop('idx')  # pyrefly: ignore
+                self.metadata[idx] = meta  # pyrefly: ignore
             
             logger.info(f"Added {len(features_list)} visitors to HNSW index")
             return len(features_list)

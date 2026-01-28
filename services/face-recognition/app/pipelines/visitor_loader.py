@@ -176,7 +176,7 @@ def load_visitors_from_test_images(
             if faces is None or len(faces) == 0:
                 continue
             
-            feature = inference.extract_face_features(img_cv, faces[0])
+            feature = inference.extract_face_features(img_cv, np.asarray(faces[0]))
             if feature is None:
                 continue
             

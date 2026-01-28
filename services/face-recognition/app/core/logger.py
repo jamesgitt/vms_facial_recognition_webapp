@@ -5,7 +5,7 @@ Provides consistent logging across all face recognition modules.
 Uses [OK], [WARNING], [ERROR] prefix style for console output.
 
 Usage:
-    from logger import get_logger
+    from core.logger import get_logger
     logger = get_logger(__name__)
     
     logger.info("Models loaded")           # [OK] Models loaded
@@ -148,7 +148,7 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
         Configured logger that inherits settings from root logger.
     
     Example:
-        from logger import get_logger
+        from core.logger import get_logger
         logger = get_logger(__name__)
         logger.info("Connected to database")  # [OK] Connected to database
     """

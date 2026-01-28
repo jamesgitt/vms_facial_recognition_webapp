@@ -12,16 +12,8 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import numpy as np
 
-try:
-    from app.db.connection import get_connection
-    from app.core.logger import get_logger
-except ImportError:
-    # Fallback for scripts that run from different paths
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    from app.db.connection import get_connection
-    from app.core.logger import get_logger
+from .connection import get_connection
+from core.logger import get_logger
 
 logger = get_logger(__name__)
 

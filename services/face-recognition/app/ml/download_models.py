@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from logger import get_logger
+from core.logger import get_logger
 logger = get_logger(__name__)
 
 # Load environment variables from .env file

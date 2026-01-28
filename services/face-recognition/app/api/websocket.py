@@ -116,9 +116,9 @@ async def websocket_face_endpoint(websocket: WebSocket):
                     continue
                 
                 # Build response
-                faces_list = []
+                faces_list: list[dict] = []
                 for face in result.faces:
-                    face_obj = {
+                    face_obj: dict = {
                         "bbox": list(face.bbox)
                     }
                     if face.confidence is not None:

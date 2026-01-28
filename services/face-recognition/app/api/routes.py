@@ -64,7 +64,7 @@ async def health():
     """Health check endpoint."""
     return HealthResponse(
         status="ok",
-        time=datetime.datetime.utcnow().isoformat() + "Z"
+        time=datetime.datetime.now(datetime.timezone.utc).isoformat()
     )
 
 
