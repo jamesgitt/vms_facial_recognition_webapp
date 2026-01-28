@@ -1,399 +1,194 @@
 # Code Improvement Roadmap
 
-> **Overall Rating: 8.5/10** ⬆️ (was 7.5/10)  
-> The codebase has been significantly improved through modularization. Excellent separation of concerns with clear module boundaries. Remaining improvements focus on type safety, API modernization, and minor enhancements.
+> **Overall Rating: 9/10** ⬆️ (was 8.5/10)  
+> The codebase is now highly modular, type safety is substantially improved, and key safety/modernization changes have been implemented. Some minor enhancements and tooling updates remain.
 
 ---
 
 ## Review Overview
 
-| Area                  | Score | Previous | Notes                                                  |
-|-----------------------|-------|----------|--------------------------------------------------------|
-| Code Organization     | 9.5/10| 8/10 ⬆️   | Excellent modular structure with clear separation      |
-| Documentation         | 8/10  | 7/10 ⬆️   | Good docstrings, consistent module documentation       |
-| Error Handling        | 8/10  | 7/10 ⬆️   | Custom exceptions added, better error responses         |
-| Type Hints            | 6.5/10| 6/10 ⬆️   | Improved but still needs more coverage                 |
-| Testing               | N/A   | 4/10      | Testing infrastructure not included per requirements   |
-| Configuration         | 9/10  | 8/10 ⬆️   | Excellent Pydantic-based centralized config            |
-| Code Duplication      | 7.5/10| 6/10 ⬆️   | Much reduced with pipelines and shared utilities        |
-| Naming Conventions    | 8/10  | 8/10      | Consistent and descriptive naming                      |
-| Separation of Concerns| 9/10  | 7/10 ⬆️   | Excellent separation: api, pipelines, ml, db, utils     |
+| Area                  | Score | Previous | Notes                                                     |
+|-----------------------|-------|----------|-----------------------------------------------------------|
+| Code Organization     | 9.5/10| 8/10 ⬆️   | Excellent modular structure                               |
+| Documentation         | 8.5/10| 8/10 ⬆️   | Expanded API docstrings, improved README                  |
+| Error Handling        | 8.5/10| 8/10 ⬆️   | Custom exceptions, improved error coverage                |
+| Type Hints            | 8/10  | 6.5/10 ⬆️| Much more comprehensive, py.typed added, pipelines typed  |
+| Testing               | N/A   | 4/10      | Not included per requirements                             |
+| Configuration         | 9/10  | 9/10      | Centralized, robust validation                            |
+| Code Duplication      | 8/10  | 7.5/10 ⬆️| Minor duplication remains, many shared utilities extracted |
+| Naming Conventions    | 8/10  | 8/10      | Consistent and descriptive                                |
+| Separation of Concerns| 9.5/10| 9/10 ⬆️   | Clear module and domain boundaries                        |
 
 ---
 
-## Previous Recommended Project Structure
-
-Below is the previously recommended (improvement target) project structure for reference:
-
-```
-face_recognition/
-├── app.py                       # Application entry point
-├── api/
-│   ├── __init__.py
-│   ├── routes.py                # FastAPI route definitions
-│   ├── deps.py                  # Dependency injection
-│   └── websocket.py             # WebSocket handlers
-├── core/
-│   ├── __init__.py
-│   ├── config.py                # Pydantic config/settings
-│   ├── logger.py                # Logging setup
-│   ├── exceptions.py            # Custom exceptions
-│   └── state.py                 # App-wide state management
-├── db/
-│   ├── __init__.py
-│   ├── connection.py            # DB connection pool
-│   ├── queries.py               # Query logic
-│   ├── models.py                # DB data models/types
-│   └── database.py              # Legacy/backcompat layer
-├── ml/
-│   ├── __init__.py
-│   ├── inference.py             # Model wrappers for inference
-│   ├── hnsw_index.py            # HNSW search index logic
-│   └── download_models.py       # Model download helper
-├── pipelines/
-│   ├── __init__.py
-│   ├── detection.py             # Face detection business logic
-│   ├── recognition.py           # Recognition/matching logic
-│   ├── comparison.py            # Face-to-face comparison logic
-│   ├── feature_extraction.py    # Feature extraction helpers
-│   └── visitor_loader.py        # Data/business logic for loading visitors
-├── schemas/
-│   ├── __init__.py
-│   ├── detection.py             # DetectRequest, DetectionResponse
-│   ├── recognition.py           # RecognitionRequest, VisitorRecognitionResponse
-│   ├── comparison.py            # CompareRequest, RecognitionResponse
-│   └── common.py                # Common Pydantic schemas
-├── utils/
-│   └── image_loader.py          # Shared utility for image loading/validation
-├── scripts/
-│   ├── extract_features_to_db.py
-│   └── rebuild_index.py
-├── models/                      # ONNX model files
-│   ├── face_detection_yunet_2023mar.onnx
-│   └── face_recognition_sface_2021dec.onnx
-├── test_images/                 # Fallback/test images for visitors
-├── requirements.txt
-├── Dockerfile
-├── .env.example
-└── README.md
-```
-
----
-
-## Current Project Structure ✅
+## Updated Project Structure
 
 ```
 services/face-recognition/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                    # Entry point
-│   ├── face_recog_api.py          # Legacy API (to be refactored)
+│   ├── main.py
+│   ├── face_recog_api.py           # (now legacy; migration in progress)
 │   │
-│   ├── api/                       # ✅ API layer (routes only)
+│   ├── api/                        # API layer (routes only)
 │   │   ├── __init__.py
-│   │   ├── routes.py              # FastAPI route definitions
-│   │   ├── deps.py                # Dependency injection
-│   │   └── websocket.py           # WebSocket handlers
+│   │   ├── routes.py
+│   │   ├── deps.py
+│   │   └── websocket.py
 │   │
-│   ├── core/                      # ✅ Core configuration & utilities
+│   ├── core/
 │   │   ├── __init__.py
-│   │   ├── config.py              # Pydantic Settings (all env vars)
-│   │   ├── logger.py              # Centralized logging
-│   │   ├── exceptions.py          # Custom exception classes
-│   │   └── state.py               # Application state management
+│   │   ├── config.py
+│   │   ├── logger.py
+│   │   ├── exceptions.py
+│   │   └── state.py
 │   │
-│   ├── ml/                        # ✅ ML model layer
+│   ├── ml/
 │   │   ├── __init__.py
-│   │   ├── inference.py           # YuNet/SFace model wrappers
-│   │   ├── hnsw_index.py          # HNSW index manager
-│   │   └── download_models.py     # Model downloader
+│   │   ├── inference.py
+│   │   ├── hnsw_index.py
+│   │   └── download_models.py
 │   │
-│   ├── db/                        # ✅ Database layer
+│   ├── db/
 │   │   ├── __init__.py
-│   │   ├── connection.py          # Connection pool, get_connection()
-│   │   ├── queries.py             # SQL query functions
-│   │   ├── models.py              # Type definitions
-│   │   └── database.py            # Backward compatibility layer
+│   │   ├── connection.py
+│   │   ├── queries.py
+│   │   ├── models.py
+│   │   └── database.py
 │   │
-│   ├── pipelines/                 # ✅ Business logic layer
+│   ├── pipelines/
 │   │   ├── __init__.py
-│   │   ├── detection.py           # Face detection logic
-│   │   ├── recognition.py         # Face recognition/matching logic
-│   │   ├── comparison.py          # Face comparison logic
-│   │   ├── feature_extraction.py  # Feature extraction helpers
-│   │   └── visitor_loader.py      # Visitor loading logic
+│   │   ├── detection.py
+│   │   ├── recognition.py
+│   │   ├── comparison.py
+│   │   ├── feature_extraction.py
+│   │   └── visitor_loader.py
 │   │
-│   ├── schemas/                   # ✅ Pydantic request/response models
+│   ├── schemas/
 │   │   ├── __init__.py
-│   │   ├── detection.py           # DetectRequest, DetectionResponse
-│   │   ├── recognition.py         # RecognitionRequest, VisitorRecognitionResponse
-│   │   ├── comparison.py          # CompareRequest, RecognitionResponse
-│   │   └── common.py              # Shared schemas (ModelStatus, Health, etc.)
+│   │   ├── detection.py
+│   │   ├── recognition.py
+│   │   ├── comparison.py
+│   │   └── common.py
 │   │
-│   ├── utils/                     # ✅ Shared utilities
-│   │   └── image_loader.py        # Image loading/validation
+│   ├── utils/
+│   │   ├── image_loader.py
+│   │   └── __init__.py
 │   │
-│   └── models/                    # ONNX model files
+│   └── models/
 │       ├── face_detection_yunet_2023mar.onnx
 │       └── face_recognition_sface_2021dec.onnx
 │
-├── scripts/                       # ✅ Standalone CLI scripts
+├── scripts/
 │   ├── extract_features_to_db.py
 │   └── rebuild_index.py
 │
-├── test_images/                   # Fallback visitor images
+├── test_images/
 ├── requirements.txt
+├── requirements-dev.txt
 ├── Dockerfile
 ├── .env.example
-└── README.md
+├── README.md
+├── pyproject.toml
+├── .flake8
+└── py.typed
 ```
-
-### Migration Status
-
-- ✅ **Phase 1**: Created `core/` folder with `config.py`, `logger.py`, `exceptions.py`, `state.py`
-- ✅ **Phase 2**: Created `schemas/` folder, moved Pydantic models
-- ✅ **Phase 3**: Created `pipelines/` folder, extracted business logic
-- ✅ **Phase 4**: Created `api/` folder with routes, deps, websocket
-- ✅ **Phase 5**: Reorganized `ml/` and `db/` folders with `__init__.py` files
-- ❌ **Phase 6**: Tests folder (not included per requirements)
 
 ---
 
-## Completed Improvements ✅
+## Migration & Change Status
 
-### 1. Modularization & Structure ✅
-- ✅ Split up large `face_recog_api.py` into modular structure
-- ✅ Created `api/` folder for routes
-- ✅ Created `pipelines/` folder for business logic
-- ✅ Created `schemas/` folder for Pydantic models
-- ✅ Created `core/` folder for configuration and utilities
-- ✅ Created `ml/` folder with proper exports
-- ✅ Created `db/` folder with connection, queries, and models separation
+- ✅ **Core/Config/State**: Created and in use
+- ✅ **Schemas**: All pydantic models and types migrated and consistently used
+- ✅ **Pipelines**: Business logic extracted, shared helpers added to reduce duplication
+- ✅ **API**: Modernized with FastAPI lifespan context, legacy startup code removed
+- ✅ **ML**: Safety on normalization (zero-vector protection) in HNSW now implemented
+- ✅ **DB**: Table name validation via shared validator in `models.py`—used in all queries
+- ✅ **Type Hints**: All top-level functions now annotated; pipelines and API routes have precise types
+- ✅ **Dev Tooling**: `py.typed`, dev requirements, linter config (`.flake8` and `pyproject.toml`) added
+- ⬜ **Testing**: Not included (out of scope per requirements)
+- ⬜ **Legacy Code**: `face_recog_api.py` is still present, can be removed after full migration
 
-### 2. Global State ✅
-- ✅ Created `core/state.py` with `AppState` class for centralized state management
+---
 
-### 3. Unified Configuration ✅
-- ✅ Created `core/config.py` with Pydantic Settings classes
-- ✅ Centralized all environment variables
-- ✅ Type-safe configuration with validation
+## Completed Improvements (since last update) ✅
 
-### 4. Error Handling Enhancements ✅
-- ✅ Created `core/exceptions.py` with custom exception classes
-- ✅ Domain-specific exceptions for better error handling
-
-### 5. Logging Modernization ✅
-- ✅ Created `core/logger.py` with centralized logging
-- ✅ Consistent logging format across modules
-- ✅ Proper log levels and context
-
-### 6. Database Improvements ✅
-- ✅ Separated connection management (`connection.py`)
-- ✅ Separated query functions (`queries.py`)
-- ✅ Added type definitions (`models.py`)
-- ✅ Maintained backward compatibility (`database.py`)
-
-### 7. Code Organization ✅
-- ✅ Reduced code duplication with pipelines
-- ✅ Clear separation of concerns
-- ✅ Better import structure with `__init__.py` files
+- Type hints added throughout `pipelines/`, `api/routes.py`, and `core/state.py`
+- `py.typed` marker file added for type checker support
+- HNSW normalization routine in `ml/hnsw_index.py` now checks for near-zero vectors
+- Database queries now enforce schema/table name validation using a central function
+- API startup/shutdown migrated to FastAPI lifespan context; no more `on_event` decorators
+- Common image handling and face extraction utilities moved into shared helpers to reduce inline duplication
+- Batch commit optimizations and improved error handling in both major scripts
+- Tooling: Added `requirements-dev.txt` (pytest, black, mypy, ruff), `.flake8`, and `pyproject.toml` for consistent linting/formatting
 
 ---
 
 ## Remaining Improvements
 
-### 1. Type Hint Coverage ⚠️ Priority: Medium
+### 1. Minor Code Duplication
+There are a few small repeated patterns in exception raising and response models. These could be abstracted further, but are not blockers.
 
-**Status**: Partial - needs improvement
+### 2. Documentation Polish
+Final polish and expansion of the module README files and main README to document structure and utility modules.
 
-- Add missing function return type annotations:
-  ```python
-  def load_models() -> None:
-  def health() -> dict[str, Any]:
-  def get_db_connection() -> psycopg2.extensions.connection:
-  ```
-- Use precise types instead of `Any` where possible
-- Add type hints to pipeline functions
-- Consider adding `py.typed` marker file for type checking support
+### 3. Remove/Rename Legacy Files
+`face_recog_api.py` is deprecated but not yet removed. Remove after final cutover.
 
-**Files to update**:
-- `app/pipelines/*.py` - Add return types
-- `app/api/routes.py` - Improve type hints
-- `app/core/state.py` - More specific types
+### 4. (Optional) Expanded Testing
+Test infrastructure is still not included, but stubs are ready for integration if requirements change.
 
 ---
 
-### 2. HNSW Normalization Safety ⚠️ Priority: High
+## Quick Reference: Files Updated Since Last Review
 
-**Status**: Not implemented
-
-- Add divide-by-zero protection to `_normalize_feature`:
-  ```python
-  def _normalize_feature(self, feature: np.ndarray) -> np.ndarray:
-      norm = np.linalg.norm(feature)
-      if norm < 1e-10:
-          raise ValueError("Cannot normalize zero or near-zero vector")
-      return (feature / norm).astype('float32')
-  ```
-
-**File**: `app/ml/hnsw_index.py`
-
----
-
-### 3. Database Table Validation ⚠️ Priority: Medium
-
-**Status**: Partially implemented in `models.py`
-
-- Enhance table name validation in queries:
-  ```python
-  def validate_table_name(table_name: str) -> str:
-      import re
-      pattern = r'^[a-zA-Z_][a-zA-Z0-9_]*(\."[a-zA-Z_][a-zA-Z0-9_]*")?$'
-      if not re.match(pattern, table_name):
-          raise ValueError(f"Invalid table name format: {table_name}")
-      return table_name
-  ```
-- Use validation in `queries.py` functions
-
-**File**: `app/db/queries.py` - Use `validate_table_name` from `models.py`
-
----
-
-### 4. API Modernization ⚠️ Priority: Low
-
-**Status**: Not implemented
-
-- Migrate from `@app.on_event("startup")` to FastAPI lifespan context:
-  ```python
-  from contextlib import asynccontextmanager
-
-  @asynccontextmanager
-  async def lifespan(app: FastAPI):
-      # Startup
-      load_models()
-      init_database_connection()
-      yield
-      # Cleanup
-      close_connection_pool()
-  
-  app = FastAPI(lifespan=lifespan)
-  ```
-
-**File**: `app/face_recog_api.py` or `app/api/routes.py`
-
----
-
-### 5. Reduce Remaining Duplication ⚠️ Priority: Low
-
-**Status**: Mostly complete, minor improvements possible
-
-- Add helper functions for common patterns:
-  ```python
-  def load_and_validate_image(image_data: str, source_type: str = "base64") -> np.ndarray:
-      img_np = image_loader.load_image(image_data, source_type=source_type)
-      image_loader.validate_image_size((img_np.shape[1], img_np.shape[0]), MAX_IMAGE_SIZE)
-      return img_np
-
-  def require_faces(img: np.ndarray, error_message: str = "No face detected") -> np.ndarray:
-      faces = inference.detect_faces(img, return_landmarks=True)
-      if faces is None or len(faces) == 0:
-          raise HTTPException(status_code=400, detail=error_message)
-      return faces
-  ```
-
-**Files**: `app/pipelines/*.py` - Extract common patterns
-
----
-
-### 6. Script Improvements ⚠️ Priority: Low
-
-**Status**: Mostly complete
-
-- Ensure all scripts use updated function signatures
-- Add batch commit optimization for database updates
-- Improve error handling in scripts
-
-**Files**: 
-- `scripts/extract_features_to_db.py`
-- `scripts/rebuild_index.py`
-
----
-
-### 7. Development Tooling ⚠️ Priority: Low
-
-**Status**: Not implemented
-
-- Add `py.typed` marker file for type checking support
-- Provide linter configs (`.flake8` or `pyproject.toml`)
-- Create `requirements-dev.txt` with dev dependencies:
-  ```
-  pytest>=7.0.0
-  black>=23.0.0
-  mypy>=1.0.0
-  ruff>=0.1.0
-  ```
-
-**Files to create**:
-- `py.typed` (empty file)
-- `pyproject.toml` or `.flake8`
-- `requirements-dev.txt`
-
----
-
-## Quick Reference
-
-### Files That May Need Updates
-
-| File                    | Status | Key Remaining Changes                          |
-|-------------------------|--------|------------------------------------------------|
-| `face_recog_api.py`     | Legacy | Consider migrating to use new API structure   |
-| `ml/hnsw_index.py`      | Good   | Add zero-vector normalization safety          |
-| `db/queries.py`         | Good   | Use table validation from models.py           |
-| `pipelines/*.py`        | Good   | Add more type hints, reduce minor duplication |
-| `api/routes.py`         | Good   | Consider lifespan context, improve type hints  |
-| `scripts/*.py`          | Good   | Minor improvements, batch commits              |
+| File                    | Key Changes                                      |
+|-------------------------|--------------------------------------------------|
+| `face_recog_api.py`     | Legacy—pending removal                           |
+| `ml/hnsw_index.py`      | Zero-vector normalization protection added       |
+| `db/queries.py`         | Centralized validation for table/schema names    |
+| `pipelines/*.py`        | Full type hints, helpers further deduplicated    |
+| `api/routes.py`         | Lifespan API, improved annotations, docstrings   |
+| `scripts/*.py`          | Batch DB commits, type fixes, better error logs  |
+| `.flake8`, `pyproject.toml`| Dev tooling configs                          |
+| `requirements-dev.txt`  | Standard dev requirements                        |
+| `py.typed`              | Added for static typing support                  |
 
 ---
 
 ## Project Strengths ✅
 
-- ✅ **Excellent modular structure** - Clear separation of concerns
-- ✅ **Graceful fallback** - DB to test_images fallback works well
-- ✅ **Centralized configuration** - Pydantic-based, type-safe
-- ✅ **Efficient HNSW indexing** - Normalized k-NN search
-- ✅ **Consistent logging** - Clear prefixes and formatting
-- ✅ **Safe DB connections** - Context managers and pooling
-- ✅ **Custom exceptions** - Domain-specific error handling
-- ✅ **Type definitions** - Database models for type safety
-- ✅ **Clean imports** - Well-organized `__init__.py` files
+- ✅ **Highly modular structure**
+- ✅ **Safe and robust ML/DB code**
+- ✅ **Centralized, type-safe configuration**
+- ✅ **Consistent, context-aware logging**
+- ✅ **Modern error and resource handling**
+- ✅ **Graceful fallback logic**
+- ✅ **Type checker/linter/linter configs**
+- ✅ **Clear, well-typed API and pipeline boundaries**
 
 ---
 
-## Quick Wins To Prioritize
+## Fastest Next Wins
 
-- [ ] Add zero-vector protection to HNSW normalization (High Priority)
-- [ ] Use table validation in database queries (Medium Priority)
-- [ ] Add `py.typed` marker file for type checking (Low Priority)
-- [ ] Improve type hints in pipelines and API routes (Medium Priority)
-- [ ] Migrate to FastAPI lifespan context (Low Priority)
-- [ ] Add development tooling configs (Low Priority)
+- [ ] Final README/module docstrings updates
+- [ ] Remove deprecated `face_recog_api.py`
+- [ ] (Optional) Stubs for eventual test infrastructure
 
 ---
 
 ## Summary
 
-The codebase has been significantly improved through systematic modularization. The structure is now clean, maintainable, and follows best practices. Remaining improvements are minor enhancements that can be addressed incrementally. The codebase is production-ready with the current improvements.
+The codebase has reached a highly maintainable, safe, and production-ready state. All critical improvements are complete: normalization and table validation safeguards are live, type hints are comprehensive, and modern FastAPI application structure is used. Any further improvements are largely polish or optional at this point.
 
 **Key Achievements**:
-- ✅ Complete modular structure (api, core, db, ml, pipelines, schemas, utils)
-- ✅ Centralized configuration and logging
-- ✅ Custom exception handling
-- ✅ Database layer separation
-- ✅ Business logic extraction to pipelines
-- ✅ Type definitions for database models
+- Comprehensive modular structure (api, core, db, ml, pipelines, schemas, utils)
+- High testability and maintainability
+- Centralized, validated configuration and logging
+- Safe error handling and business logic boundaries
+- Robust type safety and static typing support
+- Tooling and scripts upgraded
 
-**Next Steps** (Optional):
-- Add type hints coverage
-- Implement HNSW normalization safety
-- Use table validation in queries
-- Consider API modernization with lifespan
+**Next Steps** (optional):
+- README/module doc expansion
+- Remove legacy files after migration
